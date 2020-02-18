@@ -10,11 +10,12 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/DataDog/datadog-agent/pkg/util/cloudfoundry"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/DataDog/datadog-agent/pkg/util/cloudfoundry"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
