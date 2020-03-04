@@ -462,7 +462,7 @@ func getServiceCheckStatus(state string, substateMapping map[string]string) metr
 	if !ok {
 		return metrics.ServiceCheckUnknown
 	}
-	switch strings.ToLower(mappedServiceCheckStatus) {
+	switch mappedServiceCheckStatus {
 	case "ok":
 		return metrics.ServiceCheckOK
 	case "warning":
@@ -485,7 +485,7 @@ func (c *SystemdCheck) isMonitored(unitName string) bool {
 
 func isValidServiceCheckStatus(serviceCheckStatus string) bool {
 	for _, validStatus := range validServiceCheckStatus {
-		if strings.EqualFold(serviceCheckStatus, validStatus) {
+		if serviceCheckStatus == validStatus {
 			return true
 		}
 	}
