@@ -36,6 +36,10 @@ DEFAULT_TOOL_TARGETS = [
     "./cmd",
 ]
 
+DEFAULT_SKIP_DIRS = [
+    "pkg/network",
+]
+
 DEFAULT_TEST_TARGETS = [
     "./pkg",
     "./cmd",
@@ -67,6 +71,7 @@ def test(ctx, targets=None, coverage=False, build_include=None, build_exclude=No
     build_include = get_default_build_tags(process=True) if build_include is None else build_include.split(",")
     build_exclude = [] if build_exclude is None else build_exclude.split(",")
     build_tags = get_build_tags(build_include, build_exclude)
+    skip_dirs = ",".join(DEFAULT_SKIP_DIRS)
 
     timeout = int(timeout)
 
@@ -96,7 +101,7 @@ def test(ctx, targets=None, coverage=False, build_include=None, build_exclude=No
         # for now we only run golangci_lint on Unix as the Windows env need more work
         if sys.platform != 'win32':
             print("--- golangci_lint:")
-            golangci_lint(ctx, targets=tool_targets, rtloader_root=rtloader_root, build_tags=build_tags)
+            golangci_lint(ctx, targets=tool_targets, rtloader_root=rtloader_root, build_tags=build_tags, skip_dirs=skip_dirs)
 
     with open(PROFILE_COV, "w") as f_cov:
         f_cov.write("mode: count")

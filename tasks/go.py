@@ -160,7 +160,7 @@ def cyclo(ctx, targets, limit=15):
 
 
 @task
-def golangci_lint(ctx, targets, rtloader_root=None, build_tags=None):
+def golangci_lint(ctx, targets, rtloader_root=None, build_tags=None, skip_dirs=""):
     """
     Run golangci-lint on targets using .golangci.yml configuration.
 
@@ -173,11 +173,19 @@ def golangci_lint(ctx, targets, rtloader_root=None, build_tags=None):
         targets = targets.split(',')
 
     tags = build_tags or get_default_build_tags()
+
+    if len(skip_dirs):
+        skip_dirs = "--skip-dirs {}".format(skip_dirs)
+
     _, _, env = get_build_flags(ctx, rtloader_root=rtloader_root)
     # we split targets to avoid going over the memory limit from circleCI
     for target in targets:
         print("running golangci on {}".format(target))
-        ctx.run("golangci-lint run -c .golangci.yml --build-tags '{}' {}".format(" ".join(tags), "{}/...".format(target)), env=env)
+        ctx.run("golangci-lint run -c .golangci.yml --build-tags '{}' {} {}".format(
+            " ".join(tags),
+            skip_dirs,
+            "{}/...".format(target)
+        ),env=env)
 
     # golangci exits with status 1 when it finds an issue, if we're here
     # everything went smooth
