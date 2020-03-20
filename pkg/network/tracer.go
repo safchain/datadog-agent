@@ -131,7 +131,7 @@ func NewTracer(config *Config) (*Tracer, error) {
 	log.Infof("socket struct offset guessing complete (took %v)", time.Since(start))
 
 	// Use the config to determine what kernel probes should be enabled
-	enabledProbes := config.EnabledKProbes(pre410Kernel)
+	enabledProbes := EnabledKProbes(config, pre410Kernel)
 
 	for k := range m.IterKprobes() {
 		probeName := KProbeName(k.Name)
