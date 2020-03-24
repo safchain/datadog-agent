@@ -170,6 +170,7 @@ end
 def status
   if os == :windows
     status_out = `sc interrogate datadogagent 2>&1`
+    status_out.encode!('UTF-8', invalid: :replace, undef: :replace, replace: '')
     puts status_out
     status_out.include?('RUNNING')
   else
