@@ -1282,6 +1282,14 @@
   version = "v1.4.2"
 
 [[projects]]
+  digest = "1:b021708dff42675563d82afe608b5630d81f6e8eec252b6071337c41c7f300b9"
+  name = "github.com/soniah/gosnmp"
+  packages = ["."]
+  pruneopts = ""
+  revision = "e3a0d759eeff664255695ef2574b3b5f74097b46"
+  version = "v1.24.0"
+
+[[projects]]
   digest = "1:956f655c87b7255c6b1ae6c203ebb0af98cf2a13ef2507e34c9bf1c0332ac0f5"
   name = "github.com/spf13/afero"
   packages = [
@@ -2117,7 +2125,7 @@
   revision = "b3a7cee44a305be0a69e1b9ac03018307287e1b0"
 
 [[projects]]
-  digest = "1:f27698f7ae7864893ebcfb843e44d821263ac1dcf0ba1d5c2353f9d319a2f28d"
+  digest = "0:"
   name = "k8s.io/kubernetes"
   packages = [
     "pkg/kubelet/remote/fake",
@@ -2295,6 +2303,7 @@
     "github.com/shirou/gopsutil/net",
     "github.com/shirou/gopsutil/process",
     "github.com/shirou/w32",
+    "github.com/soniah/gosnmp",
     "github.com/spf13/afero",
     "github.com/spf13/cobra",
     "github.com/spf13/pflag",
