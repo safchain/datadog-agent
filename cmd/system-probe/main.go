@@ -8,8 +8,19 @@ import (
 	"os"
 
 	"github.com/DataDog/datadog-agent/pkg/process/config"
+	"github.com/DataDog/datadog-agent/pkg/security/agent"
+	"github.com/DataDog/datadog-agent/pkg/security/probe"
 
 	_ "net/http/pprof"
+)
+
+const (
+	// ErrLoadConfig - Load config error
+	ErrLoadConfig = "main - LoadConfig error: %v"
+	// ErrManagerStart - Probe Manager start error
+	ErrManagerStart = "main - ProbeManager start error: %v"
+	// ErrManagerStop - Probe Manager stop error
+	ErrManagerStop = "main - ProbeManager stop error: %v"
 )
 
 func main() {
@@ -23,7 +34,18 @@ func main() {
 	flag.StringVar(&opts.checkClient, "client", "", "The client ID that the check will use to run")
 	flag.Parse()
 
+	agent := agent.NewAgent()
+	if err := agent.Start(); err != nil {
+		fmt.Printf(ErrManagerStart, err)
+		os.Exit(1)
+	}
+
 	runAgent()
+
+	if err := probe.Manager.Stop(); err != nil {
+		fmt.Printf(ErrManagerStop, err)
+		os.Exit(1)
+	}
 }
 
 // run check command if the flag is specified
