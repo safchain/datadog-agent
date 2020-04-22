@@ -13,6 +13,7 @@ import (
 	"github.com/DataDog/datadog-agent/pkg/process/config"
 	"github.com/DataDog/datadog-agent/pkg/process/statsd"
 	"github.com/DataDog/datadog-agent/pkg/process/util"
+	secagent "github.com/DataDog/datadog-agent/pkg/security/agent"
 	"github.com/DataDog/datadog-agent/pkg/util/log"
 
 	_ "net/http/pprof"
@@ -95,6 +96,18 @@ func runAgent() {
 		cleanupAndExit(1)
 	}
 	defer sysprobe.Close()
+
+	securityAgent, err := secagent.NewAgent()
+	if err != nil {
+		log.Criticalf("failed to create security agent: %s", err)
+		os.Exit(1)
+	}
+
+	if err := securityAgent.Start(); err != nil {
+		log.Criticalf("failed to start security agent: %s", err)
+		os.Exit(1)
+	}
+	defer securityAgent.Stop()
 
 	go sysprobe.Run()
 	log.Infof("system probe successfully started")

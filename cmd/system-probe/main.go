@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/DataDog/datadog-agent/pkg/process/config"
-	"github.com/DataDog/datadog-agent/pkg/security/agent"
 
 	_ "net/http/pprof"
 )
@@ -24,18 +23,7 @@ func main() {
 	flag.StringVar(&opts.checkClient, "client", "", "The client ID that the check will use to run")
 	flag.Parse()
 
-	agent := agent.NewAgent()
-	if err := agent.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
 	runAgent()
-
-	if err := agent.Stop(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 }
 
 // run check command if the flag is specified
