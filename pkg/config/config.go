@@ -629,6 +629,7 @@ func initConfig(config Config) {
 	config.SetKnown("system_probe_config.dest_excludes")
 	config.SetKnown("system_probe_config.closed_channel_size")
 
+	config.SetDefault("security_agent.debug", false)
 	config.SetDefault("security_agent.perf_map_page_count", 128)
 	config.SetDefault("security_agent.policies", []interface{}{})
 
