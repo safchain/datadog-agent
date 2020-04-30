@@ -22,6 +22,7 @@ import (
 	"github.com/DataDog/datadog-agent/pkg/api/healthprobe"
 	"github.com/DataDog/datadog-agent/pkg/config"
 	"github.com/DataDog/datadog-agent/pkg/forwarder"
+	"github.com/DataDog/datadog-agent/pkg/security/agent"
 	"github.com/DataDog/datadog-agent/pkg/serializer"
 	"github.com/DataDog/datadog-agent/pkg/util"
 	"github.com/DataDog/datadog-agent/pkg/util/log"
@@ -160,6 +161,14 @@ func start(cmd *cobra.Command, args []string) error {
 		checkInterval := config.Datadog.GetDuration("compliance_config.check_interval")
 		log.Infof("Running compliance checks every %s", checkInterval.String())
 	}
+
+	client, err := agent.NewEventClient()
+	if err != nil {
+		return err
+	}
+
+	go client.Start()
+	defer client.Stop()
 
 	log.Infof("Datadog Security Agent is now running.")
 
