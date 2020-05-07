@@ -18,7 +18,8 @@ import (
 var ErrFieldNotFound = errors.New("field not found")
 
 type Model interface {
-	GetEvaluator(key string) (interface{}, []string, error)
+	GetEvaluator(key string) (interface{}, error)
+	GetTags(key string) ([]string, error)
 	SetData(data interface{})
 }
 
@@ -70,6 +71,10 @@ type BoolEvaluator struct {
 	IsPartial bool
 }
 
+func (b *BoolEvaluator) String() string {
+	return fmt.Sprintf("%t", b.Eval(nil))
+}
+
 type IntEvaluator struct {
 	Eval      func(ctx *Context) int
 	DebugEval func(ctx *Context) int
@@ -79,6 +84,10 @@ type IntEvaluator struct {
 	IsPartial bool
 }
 
+func (i *IntEvaluator) String() string {
+	return fmt.Sprintf("%d", i.Eval(nil))
+}
+
 type StringEvaluator struct {
 	Eval      func(ctx *Context) string
 	DebugEval func(ctx *Context) string
@@ -86,6 +95,10 @@ type StringEvaluator struct {
 
 	Field     string
 	IsPartial bool
+}
+
+func (s *StringEvaluator) String() string {
+	return s.Eval(nil)
 }
 
 type StringArray struct {
@@ -362,7 +375,12 @@ func nodeToEvaluator(obj interface{}, opts *Opts, state *State) (interface{}, in
 				}
 			}
 
-			accessor, tags, err := opts.Model.GetEvaluator(*obj.Ident)
+			accessor, err := opts.Model.GetEvaluator(*obj.Ident)
+			if err != nil {
+				return nil, nil, obj.Pos, err
+			}
+
+			tags, err := opts.Model.GetTags(*obj.Ident)
 			if err != nil {
 				return nil, nil, obj.Pos, err
 			}

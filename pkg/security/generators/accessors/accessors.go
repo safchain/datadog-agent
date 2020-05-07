@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -167,32 +166,20 @@ func handleSpec(astFile *ast.File, spec interface{}, prefix, aliasPrefix string)
 							continue FIELD
 						}
 
-						if len(split) > 2 {
-							tmpl, err := template.New("field").Parse(split[2])
-							if err != nil {
-								panic(err)
+						if handler, found := tag.Lookup("handler"); found {
+							els := strings.Split(handler, ",")
+							if len(els) != 2 {
+								panic("handler definition should be `FunctionName,ReturnType`")
 							}
-
-							params := map[string]interface{}{
-								"Field": fieldName,
-								"Type":  split[1],
-							}
-
-							fieldPrefix := "m.event."
-							if prefix != "" {
-								params["FieldPrefix"] = fieldPrefix + prefix + "."
-							}
-
-							buffer := new(bytes.Buffer)
-							tmpl.Execute(buffer, params)
+							fnc, kind := els[0], els[1]
 
 							if aliasPrefix != "" {
 								fieldAlias = aliasPrefix + "." + fieldAlias
 							}
 
 							module.Fields[fieldAlias] = &structField{
-								Name:   buffer.String(),
-								Type:   split[1],
+								Name:   fmt.Sprintf("m.event.%s.%s(m)", prefix, fnc),
+								Type:   kind,
 								Public: true,
 								Tags:   tags,
 							}
@@ -310,28 +297,6 @@ func parseFile(filename string, pkgName string) (*Module, error) {
 
 func main() {
 	var err error
-	/*
-		inputInfo, err := os.Stat(filename)
-		if err != nil {
-			panic(err)
-		}
-
-		if output == "" {
-			output = strings.TrimSuffix(filename, ".go") + "_genaccessors.go"
-		}
-
-		outputInfo, err := os.Stat(output)
-		if err == nil {
-			if inputInfo.ModTime().Before(outputInfo.ModTime()) {
-				// Skipping file
-				if verbose {
-					log.Printf("Skipping %s as %s is newer", filename, output)
-				}
-				return
-			}
-		}
-	*/
-
 	tmpl := template.Must(template.New("header").Parse(`{{- range .BuildTags }}// {{.}}{{end}}
 
 // Code generated - DO NOT EDIT.
@@ -348,7 +313,7 @@ var (
 	ErrFieldNotFound = errors.New("field not found")
 )
 
-func (m *Model) GetEvaluator(key string) (interface{}, []string, error) {
+func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	switch key {
 	{{range $Name, $Field := .Fields}}
 	case "{{$Name}}":
@@ -370,11 +335,22 @@ func (m *Model) GetEvaluator(key string) (interface{}, []string, error) {
 			DebugEval: func(ctx *eval.Context) bool { return {{$Field.Name}} },
 	{{end}}
 			Field: key,
-		}, []string{ {{$Field.Tags}} }, nil
+		}, nil
 	{{end}}
 	}
 
-	return nil, nil, errors.Wrap(ErrFieldNotFound, key)
+	return nil, errors.Wrap(ErrFieldNotFound, key)
+}
+
+func (m *Model) GetTags(key string) ([]string, error) {
+	switch key {
+	{{range $Name, $Field := .Fields}}
+	case "{{$Name}}":
+		return []string{ {{$Field.Tags}} }, nil
+	{{end}}
+	}
+
+	return nil, errors.Wrap(ErrFieldNotFound, key)
 }
 `))
 
