@@ -1,9 +1,9 @@
 package eval
 
 import (
-	"fmt"
 	"sort"
 
+	"github.com/cihub/seelog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 
@@ -107,38 +107,46 @@ func (rs *RuleSet) Evaluate(event Event) bool {
 	eventID := event.GetID()
 
 	bucket, found := rs.rulesByTag[eventType]
+	if !found {
+		return result
+	}
 	log.Debugf("Evaluating event `%s` of type %s against set of %d rules", eventID, eventType, len(bucket.rules))
 
-	if found {
-		for _, rule := range bucket.rules {
-			if rule.evaluator.Eval(context) {
-				log.Infof("Rule `%s` matches with event %+v\n", rule.Name, spew.Sdump(event))
+	for _, rule := range bucket.rules {
+		if rule.evaluator.Eval(context) {
+			log.Infof("Rule `%s` matches with event %+v\n", rule.Name, spew.Sdump(event))
 
-				rs.NotifyRuleMatch(rule, event)
-				result = true
-			}
+			rs.NotifyRuleMatch(rule, event)
+			result = true
 		}
+	}
 
-		if !result {
-			log.Debugf("Looking for discriminators for event `%s`", eventID)
+	if !result {
+		log.Debugf("Looking for discriminators for event `%s`", eventID)
 
-			// Look for discriminators
-			for _, field := range bucket.fields {
+		for _, field := range bucket.fields {
+			var value string
+			if level, _ := log.GetLogLevel(); level == seelog.DebugLvl {
 				eval, _ := rs.model.GetEvaluator(field)
+				value = eval.(Evaluator).StringValue()
+			}
 
-				found = true
-				for _, rule := range bucket.rules {
-					isTrue := rule.evaluator.partialEval[field](context)
+			found = true
+			for _, rule := range bucket.rules {
+				partial, ok := rule.evaluator.partialEval[field]
+				if !ok {
+					continue
+				}
 
-					log.Debugf("Partial eval of rule %s(`%s`) with field `%s` with value `%s` => %t\n", rule.Name, rule.Expression, field, eval.(fmt.Stringer).String(), isTrue)
-					if isTrue {
-						found = false
-					}
+				isTrue := partial(context)
+				log.Debugf("Partial eval of rule %s(`%s`) with field `%s` with value `%s` => %t\n", rule.Name, rule.Expression, field, value, isTrue)
+				if isTrue {
+					found = false
 				}
-				if found {
-					log.Debugf("Found discriminator for field %s with value `%s`\n", field, eval.(fmt.Stringer).String())
-					rs.NotifyDiscriminatorDiscovered(event, field)
-				}
+			}
+			if found {
+				log.Debugf("Found discriminator for field `%s` with value `%s`\n", field, value)
+				rs.NotifyDiscriminatorDiscovered(event, field)
 			}
 		}
 	}
