@@ -19,8 +19,9 @@ type Section struct {
 }
 
 type RuleDefinition struct {
-	Name       string
+	ID         string
 	Expression string
+	Tags       map[string]string
 }
 
 type Policy struct {
@@ -44,12 +45,14 @@ func LoadPolicy(r io.Reader) (*Policy, error) {
 		for key, value := range m {
 			switch key {
 			case "rule":
-				ruleDef := &RuleDefinition{}
+				ruleDef := &RuleDefinition{
+					Tags: make(map[string]string),
+				}
 				if err := mapstructure.Decode(value, ruleDef); err != nil {
 					return nil, errors.Wrap(err, "invalid policy")
 				}
 
-				if ruleDef.Name == "" {
+				if ruleDef.ID == "" {
 					return nil, ErrUnnamedRule
 				}
 

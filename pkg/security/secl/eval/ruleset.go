@@ -4,27 +4,15 @@ import (
 	"sort"
 
 	"github.com/cihub/seelog"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 
 	"github.com/DataDog/datadog-agent/pkg/security/secl/ast"
 	"github.com/DataDog/datadog-agent/pkg/util/log"
 )
 
-type Event interface {
-	GetID() string
-	GetType() string
-}
-
 type RuleSetListener interface {
 	RuleMatch(rule *Rule, event Event)
 	DiscriminatorDiscovered(event Event, field string)
-}
-
-type Rule struct {
-	Name       string
-	Expression string
-	evaluator  *RuleEvaluator
 }
 
 type RuleBucket struct {
@@ -53,7 +41,7 @@ type RuleSet struct {
 	debug      bool
 }
 
-func (rs *RuleSet) AddRule(name, expression string) (*Rule, error) {
+func (rs *RuleSet) AddRule(id, expression string, tags ...string) (*Rule, error) {
 	astRule, err := ast.ParseRule(expression)
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid rule")
@@ -65,9 +53,10 @@ func (rs *RuleSet) AddRule(name, expression string) (*Rule, error) {
 	}
 
 	rule := &Rule{
-		Name:       name,
+		ID:         id,
 		Expression: expression,
 		evaluator:  evaluator,
+		Tags:       tags,
 	}
 
 	for _, tag := range evaluator.Tags {
@@ -101,7 +90,7 @@ func (rs *RuleSet) AddListener(listener RuleSetListener) {
 
 func (rs *RuleSet) Evaluate(event Event) bool {
 	result := false
-	rs.model.SetData(event)
+	rs.model.SetEvent(event)
 	context := &Context{}
 	eventType := event.GetType()
 	eventID := event.GetID()
@@ -114,7 +103,7 @@ func (rs *RuleSet) Evaluate(event Event) bool {
 
 	for _, rule := range bucket.rules {
 		if rule.evaluator.Eval(context) {
-			log.Infof("Rule `%s` matches with event %+v\n", rule.Name, spew.Sdump(event))
+			log.Infof("Rule `%s` matches with event %s\n", rule.ID, event)
 
 			rs.NotifyRuleMatch(rule, event)
 			result = true
@@ -139,7 +128,7 @@ func (rs *RuleSet) Evaluate(event Event) bool {
 				}
 
 				isTrue := partial(context)
-				log.Debugf("Partial eval of rule %s(`%s`) with field `%s` with value `%s` => %t\n", rule.Name, rule.Expression, field, value, isTrue)
+				log.Debugf("Partial eval of rule %s(`%s`) with field `%s` with value `%s` => %t\n", rule.ID, rule.Expression, field, value, isTrue)
 				if isTrue {
 					found = false
 				}
