@@ -440,25 +440,25 @@ func (m *Model) GetEventType(key string) (string, error) {
 		return "open", nil
 
 	case "process.gid":
-		return "process", nil
+		return "", nil
 
 	case "process.name":
-		return "process", nil
+		return "", nil
 
 	case "process.pid":
-		return "process", nil
+		return "", nil
 
 	case "process.pidns":
-		return "process", nil
+		return "", nil
 
 	case "process.tid":
-		return "process", nil
+		return "", nil
 
 	case "process.tty_name":
-		return "process", nil
+		return "", nil
 
 	case "process.uid":
-		return "process", nil
+		return "", nil
 
 	case "rename.newfilename":
 		return "rename", nil
