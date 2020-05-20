@@ -239,9 +239,13 @@ type ContainerEvent struct {
 }
 
 type KernelEvent struct {
-	Type      uint64 `field:"type"`
+	Type      uint64 `field:"type" handler:"ResolveType,string"`
 	Timestamp uint64 `field:"-"`
 	Retval    int64  `field:"retval"`
+}
+
+func (k *KernelEvent) ResolveType(resolvers *Resolvers) string {
+	return ProbeEventType(k.Type).String()
 }
 
 func (k *KernelEvent) marshalJSON(resolvers *Resolvers) ([]byte, error) {
@@ -251,7 +255,7 @@ func (k *KernelEvent) marshalJSON(resolvers *Resolvers) ([]byte, error) {
 
 	var buf bytes.Buffer
 	buf.WriteRune('{')
-	fmt.Fprintf(&buf, `"type":%d,`, k.Type)
+	fmt.Fprintf(&buf, `"type":%d,`, k.Type) // TODO(sbaubeau): use resolved type
 	fmt.Fprintf(&buf, `"timestamp":%d,`, k.Timestamp)
 	fmt.Fprintf(&buf, `"retval":%d`, k.Retval)
 	buf.WriteRune('}')
