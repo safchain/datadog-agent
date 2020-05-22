@@ -1,13 +1,15 @@
 #ifndef _OPEN_H_
 #define _OPEN_H_
 
+#include "filters.h"
 #include "syscalls.h"
 #include "process.h"
+#include "open_filter.h"
 
 struct bpf_map_def SEC("maps/open_policy") open_policy = {
     .type = BPF_MAP_TYPE_ARRAY,
     .key_size = sizeof(u32),
-    .value_size = sizeof(u8),
+    .value_size = sizeof(struct policy_t),
     .max_entries = 1,
     .pinning = 0,
     .namespace = "",
@@ -15,8 +17,17 @@ struct bpf_map_def SEC("maps/open_policy") open_policy = {
 
 struct bpf_map_def SEC("maps/open_basename_approvers") open_basename_approvers = {
     .type = BPF_MAP_TYPE_HASH,
-    .key_size = sizeof(32),
-    .value_size = sizeof(u8),
+    .key_size = sizeof(BASENAME_FILTER_SIZE),
+    .value_size = sizeof(struct filter_t),
+    .max_entries = 256,
+    .pinning = 0,
+    .namespace = "",
+};
+
+struct bpf_map_def SEC("maps/open_basename_discarders") open_basename_discarders = {
+    .type = BPF_MAP_TYPE_HASH,
+    .key_size = sizeof(BASENAME_FILTER_SIZE),
+    .value_size = sizeof(struct filter_t),
     .max_entries = 256,
     .pinning = 0,
     .namespace = "",
@@ -78,50 +89,58 @@ SYSCALL_KPROBE(openat) {
 
 SEC("kprobe/vfs_open")
 int kprobe__vfs_open(struct pt_regs *ctx) {
-    printk("kprobe/vfs_open\n");
-
-    struct path *path = (struct path *)PT_REGS_PARM1(ctx);
-
-    u32 key = 0;
-    u8 *policy = bpf_map_lookup_elem(&open_policy, &key);
-    if (policy != NULL && *policy > 0) {
-
-
-        struct dentry *dentry;
-        bpf_probe_read(&dentry, sizeof(dentry), &path->dentry);
-
-        struct qstr qstr;
-        bpf_probe_read(&qstr, sizeof(qstr), &dentry->d_name);
-
-        char basename[32];
-        bpf_probe_read_str(basename, sizeof(basename), (void *)qstr.name);
-
-        printk("kprobe/vfs_open check approver for: %s\n", basename);
-        void *found = bpf_map_lookup_elem(&open_basename_approvers, &basename);
-        if (found == NULL) {
-            printk("kprobe/vfs_open reject: %s\n", basename);
-            pop_syscall();
-            return 0;
-        } else {
-            printk("kprobe/vfs_open approve: %s\n", basename);
-        }
-    }
-
     struct syscall_cache_t *syscall = peek_syscall();
     if (!syscall)
         return 0;
 
+    syscall->open.dentry = get_path_dentry((struct path *)PT_REGS_PARM1(ctx));
+
+    char basename[BASENAME_FILTER_SIZE];
+    get_dentry_name(syscall->open.dentry, basename, sizeof(basename));
+
+    struct policy_t zero = {.mode = ACCEPT};
+    u32 policy_key = 0;
+
+    struct policy_t *policy = bpf_map_lookup_elem(&open_policy, &policy_key);
+    if (!policy) {
+        policy = &zero;
+    }
+
+    char pass_to_userspace = policy->mode == ACCEPT ? 1 : 0;
+
 #ifdef DEBUG
-    struct dentry *dentry;
-    bpf_probe_read(&dentry, sizeof(dentry), &path->dentry);
-
-    struct qstr qstr;
-    bpf_probe_read(&qstr, sizeof(qstr), &dentry->d_name);
-
-    printk("kprobe/vfs_open %s\n", qstr.name);
+    printk("kprobe/vfs_open policy mode %d\n", policy->mode);
 #endif
 
-    syscall->open.dentry = get_path_dentry((struct path *)PT_REGS_PARM1(ctx));
+    if (policy->mode == DENY) {
+        if ((policy->flags & BASENAME) > 0) {
+#ifdef DEBUG
+    printk("kprobe/vfs_open check approver for %s\n", basename);
+#endif
+            struct filter_t *filter = bpf_map_lookup_elem(&open_basename_approvers, &basename);
+            if (filter != NULL) {
+                pass_to_userspace = 1;
+            }
+        }
+    }
+
+    if (!pass_to_userspace || policy->mode == ACCEPT) {
+        struct filter_t *filter = bpf_map_lookup_elem(&open_basename_discarders, &basename);
+        if (filter) {
+            pass_to_userspace = 0;
+        }
+    }
+
+    if (!pass_to_userspace) {
+#ifdef DEBUG
+    printk("kprobe/vfs_open %s rejected\n", basename);
+#endif
+        pop_syscall();
+    } else {
+#ifdef DEBUG
+    printk("kprobe/vfs_open %s approved\n", basename);
+#endif 
+    }
 
     return 0;
 }
