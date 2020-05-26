@@ -24,9 +24,10 @@ import (
 	smodule "github.com/DataDog/datadog-agent/cmd/system-probe/module"
 	aconfig "github.com/DataDog/datadog-agent/pkg/config"
 	"github.com/DataDog/datadog-agent/pkg/security/api"
+	"github.com/DataDog/datadog-agent/pkg/security/config"
 	"github.com/DataDog/datadog-agent/pkg/security/module"
 	"github.com/DataDog/datadog-agent/pkg/security/policy"
-	"github.com/DataDog/datadog-agent/pkg/security/probe"
+	sprobe "github.com/DataDog/datadog-agent/pkg/security/probe"
 	"github.com/DataDog/datadog-agent/pkg/util/log"
 )
 
@@ -71,8 +72,17 @@ type testModule struct {
 }
 
 type testProbe struct {
-	cancel context.CancelFunc
 	st     *simpleTest
+	probe  *sprobe.Probe
+	events chan *sprobe.Event
+}
+
+type testEventHandler struct {
+	events chan *sprobe.Event
+}
+
+func (h *testEventHandler) HandleEvent(event *sprobe.Event) {
+	h.events <- event
 }
 
 func setTestConfig(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (string, error) {
@@ -175,7 +185,7 @@ func newTestModule(macros []*policy.MacroDefinition, rules []*policy.RuleDefinit
 	}, nil
 }
 
-func (tm *testModule) GetEvent() (*probe.Event, error) {
+func (tm *testModule) GetEvent() (*sprobe.Event, error) {
 	event, err := tm.client.GetEvent(3 * time.Second)
 	if err != nil {
 		return nil, err
@@ -186,7 +196,7 @@ func (tm *testModule) GetEvent() (*probe.Event, error) {
 		return nil, err
 	}
 
-	var probeEvent probe.Event
+	var probeEvent sprobe.Event
 	if err := mapstructure.WeakDecode(data, &probeEvent); err != nil {
 		return nil, err
 	}
@@ -202,7 +212,7 @@ func (tm *testModule) Close() {
 	tm.st.Close()
 }
 
-func newTestProbe(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (*testModule, error) {
+func newTestProbe(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (*testProbe, error) {
 	st, err := newSimpleTest(macros, rules)
 	if err != nil {
 		return nil, err
@@ -214,9 +224,44 @@ func newTestProbe(macros []*policy.MacroDefinition, rules []*policy.RuleDefiniti
 	}
 	defer os.Remove(cfgFilename)
 
+	config, err := config.NewConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := sprobe.NewProbe(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ruleSet, err := module.LoadPolicies(config, p)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.AddRuleSet(ruleSet); err != nil {
+		return nil, err
+	}
+
+	events := make(chan *sprobe.Event, 100)
+
+	handler := &testEventHandler{events: events}
+	p.SetEventHandler(handler)
+
 	return &testProbe{
-		st: st,
+		st:     st,
+		probe:  p,
+		events: events,
 	}, nil
+}
+
+func (tp *testProbe) GetEvent(timeout time.Duration) (*sprobe.Event, error) {
+	select {
+	case event := <-tp.events:
+		return event, nil
+	case <-time.After(timeout):
+		return nil, errors.New("timeout")
+	}
 }
 
 func (tp *testProbe) Path(filename string) (string, unsafe.Pointer, error) {
@@ -225,6 +270,7 @@ func (tp *testProbe) Path(filename string) (string, unsafe.Pointer, error) {
 
 func (tp *testProbe) Close() {
 	tp.st.Close()
+	tp.probe.Stop()
 }
 
 type testClient struct {
