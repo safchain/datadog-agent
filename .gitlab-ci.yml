@@ -1,0 +1,14 @@
+variables:
+  SRC_PATH: /go/src/github.com/DataDog/datadog-agent
+  GIT_CLONE_PATH: /go/src/github.com/DataDog/datadog-agent
+  DATADOG_AGENT_SYSPROBE_BUILDIMAGES: v2424505-0439a40
+
+security-agent-unit-tests:
+  tags: [ "runner:main" ]
+  image: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/datadog-agent-buildimages/system-probe_x64:$DATADOG_AGENT_SYSPROBE_BUILDIMAGES
+  script:
+    - git fetch --tags
+    - apt -y update
+    - apt -y install libbpfcc
+    - inv -e system-probe.build --incremental-build --go-mod= || true
+    - go test $(go list ./pkg/security/... | grep -Ev '/pkg/security/tests')
