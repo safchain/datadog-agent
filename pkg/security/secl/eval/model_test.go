@@ -9,6 +9,7 @@ import (
 type testProcess struct {
 	name   string
 	uid    int
+	gid    int
 	isRoot bool
 }
 
@@ -54,70 +55,78 @@ func (m *testModel) GetEvaluator(key string) (interface{}, error) {
 	case "process.name":
 
 		return &StringEvaluator{
-			Eval:      func(ctx *Context) string { return m.event.process.name },
-			DebugEval: func(ctx *Context) string { return m.event.process.name },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) string { return m.event.process.name },
+			DebugEvalFnc: func(ctx *Context) string { return m.event.process.name },
+			Field:        key,
 		}, nil
 
 	case "process.uid":
 
 		return &IntEvaluator{
-			Eval:      func(ctx *Context) int { return m.event.process.uid },
-			DebugEval: func(ctx *Context) int { return m.event.process.uid },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) int { return m.event.process.uid },
+			DebugEvalFnc: func(ctx *Context) int { return m.event.process.uid },
+			Field:        key,
+		}, nil
+
+	case "process.gid":
+
+		return &IntEvaluator{
+			EvalFnc:      func(ctx *Context) int { return m.event.process.gid },
+			DebugEvalFnc: func(ctx *Context) int { return m.event.process.gid },
+			Field:        key,
 		}, nil
 
 	case "process.is_root":
 
 		return &BoolEvaluator{
-			Eval:      func(ctx *Context) bool { return m.event.process.isRoot },
-			DebugEval: func(ctx *Context) bool { return m.event.process.isRoot },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) bool { return m.event.process.isRoot },
+			DebugEvalFnc: func(ctx *Context) bool { return m.event.process.isRoot },
+			Field:        key,
 		}, nil
 
 	case "open.filename":
 
 		return &StringEvaluator{
-			Eval:      func(ctx *Context) string { return m.event.open.filename },
-			DebugEval: func(ctx *Context) string { return m.event.open.filename },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) string { return m.event.open.filename },
+			DebugEvalFnc: func(ctx *Context) string { return m.event.open.filename },
+			Field:        key,
 		}, nil
 
 	case "open.flags":
 
 		return &IntEvaluator{
-			Eval:      func(ctx *Context) int { return m.event.open.flags },
-			DebugEval: func(ctx *Context) int { return m.event.open.flags },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) int { return m.event.open.flags },
+			DebugEvalFnc: func(ctx *Context) int { return m.event.open.flags },
+			Field:        key,
 		}, nil
 
 	case "open.mode":
 
 		return &IntEvaluator{
-			Eval:      func(ctx *Context) int { return m.event.open.mode },
-			DebugEval: func(ctx *Context) int { return m.event.open.mode },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) int { return m.event.open.mode },
+			DebugEvalFnc: func(ctx *Context) int { return m.event.open.mode },
+			Field:        key,
 		}, nil
 
 	case "mkdir.filename":
 
 		return &StringEvaluator{
-			Eval:      func(ctx *Context) string { return m.event.mkdir.filename },
-			DebugEval: func(ctx *Context) string { return m.event.mkdir.filename },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) string { return m.event.mkdir.filename },
+			DebugEvalFnc: func(ctx *Context) string { return m.event.mkdir.filename },
+			Field:        key,
 		}, nil
 
 	case "mkdir.mode":
 
 		return &IntEvaluator{
-			Eval:      func(ctx *Context) int { return m.event.mkdir.mode },
-			DebugEval: func(ctx *Context) int { return m.event.mkdir.mode },
-			Field:     key,
+			EvalFnc:      func(ctx *Context) int { return m.event.mkdir.mode },
+			DebugEvalFnc: func(ctx *Context) int { return m.event.mkdir.mode },
+			Field:        key,
 		}, nil
 
 	}
 
-	return nil, errors.Wrap(ErrFieldNotFound, key)
+	return nil, errors.Wrap(ErrEvaluatorNotFound, key)
 }
 
 func (m *testModel) GetTags(key string) ([]string, error) {
@@ -128,6 +137,10 @@ func (m *testModel) GetTags(key string) ([]string, error) {
 		return []string{"process"}, nil
 
 	case "process.uid":
+
+		return []string{"process"}, nil
+
+	case "process.gid":
 
 		return []string{"process"}, nil
 
@@ -157,7 +170,7 @@ func (m *testModel) GetTags(key string) ([]string, error) {
 
 	}
 
-	return nil, errors.Wrap(ErrFieldNotFound, key)
+	return nil, errors.Wrap(ErrTagsNotFound, key)
 }
 
 func (m *testModel) GetEventType(key string) (string, error) {
@@ -165,15 +178,19 @@ func (m *testModel) GetEventType(key string) (string, error) {
 
 	case "process.name":
 
-		return "", nil
+		return "*", nil
 
 	case "process.uid":
 
-		return "", nil
+		return "*", nil
+
+	case "process.gid":
+
+		return "*", nil
 
 	case "process.is_root":
 
-		return "", nil
+		return "*", nil
 
 	case "open.filename":
 
@@ -197,7 +214,60 @@ func (m *testModel) GetEventType(key string) (string, error) {
 
 	}
 
-	return "", errors.Wrap(ErrFieldNotFound, key)
+	return "", errors.Wrap(ErrEventTypeNotFound, key)
+}
+
+func (m *testModel) SetEventValue(key string, value interface{}) error {
+	switch key {
+
+	case "process.name":
+
+		m.event.process.name = value.(string)
+		return nil
+
+	case "process.uid":
+
+		m.event.process.uid = value.(int)
+		return nil
+
+	case "process.gid":
+
+		m.event.process.gid = value.(int)
+		return nil
+
+	case "process.is_root":
+
+		m.event.process.isRoot = value.(bool)
+		return nil
+
+	case "open.filename":
+
+		m.event.open.filename = value.(string)
+		return nil
+
+	case "open.flags":
+
+		m.event.open.flags = value.(int)
+		return nil
+
+	case "open.mode":
+
+		m.event.open.mode = value.(int)
+		return nil
+
+	case "mkdir.filename":
+
+		m.event.mkdir.filename = value.(string)
+		return nil
+
+	case "mkdir.mode":
+
+		m.event.mkdir.mode = value.(int)
+		return nil
+
+	}
+
+	return errors.Wrap(ErrSetEventValueNotFound, key)
 }
 
 var testConstants = map[string]interface{}{

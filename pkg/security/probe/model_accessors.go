@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	ErrFieldNotFound = errors.New("field not found")
+	ErrFieldNotFound  = errors.New("field not found")
+	ErrWrongValueType = errors.New("wrong value type")
 )
 
 func (m *Model) GetEvaluator(key string) (interface{}, error) {
@@ -18,8 +19,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "container.id":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Container.ID },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Container.ID },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Container.ID },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Container.ID },
 
 			Field: key,
 		}, nil
@@ -27,8 +28,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "event.retval":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Event.Retval) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Event.Retval) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Event.Retval) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Event.Retval) },
 
 			Field: key,
 		}, nil
@@ -36,8 +37,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "event.type":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Event.ResolveType(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Event.ResolveType(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Event.ResolveType(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Event.ResolveType(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -45,8 +46,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "mkdir.filename":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Mkdir.ResolveInode(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Mkdir.ResolveInode(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Mkdir.ResolveInode(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Mkdir.ResolveInode(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -54,8 +55,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "mkdir.inode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Mkdir.Inode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Mkdir.Inode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Mkdir.Inode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Mkdir.Inode) },
 
 			Field: key,
 		}, nil
@@ -63,8 +64,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "mkdir.mode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Mkdir.Mode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Mkdir.Mode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Mkdir.Mode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Mkdir.Mode) },
 
 			Field: key,
 		}, nil
@@ -72,8 +73,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "open.filename":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Open.ResolveInode(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Open.ResolveInode(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Open.ResolveInode(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Open.ResolveInode(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -81,8 +82,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "open.flags":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Open.Flags) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Open.Flags) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Open.Flags) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Open.Flags) },
 
 			Field: key,
 		}, nil
@@ -90,8 +91,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "open.inode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Open.Inode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Open.Inode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Open.Inode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Open.Inode) },
 
 			Field: key,
 		}, nil
@@ -99,8 +100,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "open.mode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Open.Mode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Open.Mode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Open.Mode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Open.Mode) },
 
 			Field: key,
 		}, nil
@@ -108,8 +109,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.gid":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Process.GID) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Process.GID) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Process.GID) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Process.GID) },
 
 			Field: key,
 		}, nil
@@ -117,8 +118,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.name":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Process.HandleComm(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Process.HandleComm(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Process.ResolveComm(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Process.ResolveComm(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -126,8 +127,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.pid":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Process.Pid) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Process.Pid) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Process.Pid) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Process.Pid) },
 
 			Field: key,
 		}, nil
@@ -135,8 +136,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.pidns":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Process.Pidns) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Process.Pidns) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Process.Pidns) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Process.Pidns) },
 
 			Field: key,
 		}, nil
@@ -144,8 +145,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.tid":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Process.Tid) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Process.Tid) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Process.Tid) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Process.Tid) },
 
 			Field: key,
 		}, nil
@@ -153,8 +154,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.tty_name":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Process.HandleTTY(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Process.HandleTTY(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Process.TTYName },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Process.TTYName },
 
 			Field: key,
 		}, nil
@@ -162,8 +163,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "process.uid":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Process.UID) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Process.UID) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Process.UID) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Process.UID) },
 
 			Field: key,
 		}, nil
@@ -171,8 +172,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "rename.newfilename":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Rename.ResolveTargetInode(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Rename.ResolveTargetInode(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Rename.ResolveTargetInode(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Rename.ResolveTargetInode(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -180,8 +181,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "rename.newinode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Rename.TargetInode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Rename.TargetInode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Rename.TargetInode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Rename.TargetInode) },
 
 			Field: key,
 		}, nil
@@ -189,8 +190,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "rename.oldfilename":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Rename.ResolveSrcInode(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Rename.ResolveSrcInode(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Rename.ResolveSrcInode(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Rename.ResolveSrcInode(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -198,8 +199,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "rename.oldinode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Rename.SrcInode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Rename.SrcInode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Rename.SrcInode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Rename.SrcInode) },
 
 			Field: key,
 		}, nil
@@ -207,8 +208,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "rmdir.filename":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Rmdir.ResolveInode(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Rmdir.ResolveInode(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Rmdir.ResolveInode(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Rmdir.ResolveInode(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -216,8 +217,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "rmdir.inode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Rmdir.Inode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Rmdir.Inode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Rmdir.Inode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Rmdir.Inode) },
 
 			Field: key,
 		}, nil
@@ -225,8 +226,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "unlink.filename":
 
 		return &eval.StringEvaluator{
-			Eval:      func(ctx *eval.Context) string { return m.event.Unlink.ResolveInode(m.event.resolvers) },
-			DebugEval: func(ctx *eval.Context) string { return m.event.Unlink.ResolveInode(m.event.resolvers) },
+			EvalFnc:      func(ctx *eval.Context) string { return m.event.Unlink.ResolveInode(m.event.resolvers) },
+			DebugEvalFnc: func(ctx *eval.Context) string { return m.event.Unlink.ResolveInode(m.event.resolvers) },
 
 			Field: key,
 		}, nil
@@ -234,8 +235,8 @@ func (m *Model) GetEvaluator(key string) (interface{}, error) {
 	case "unlink.inode":
 
 		return &eval.IntEvaluator{
-			Eval:      func(ctx *eval.Context) int { return int(m.event.Unlink.Inode) },
-			DebugEval: func(ctx *eval.Context) int { return int(m.event.Unlink.Inode) },
+			EvalFnc:      func(ctx *eval.Context) int { return int(m.event.Unlink.Inode) },
+			DebugEvalFnc: func(ctx *eval.Context) int { return int(m.event.Unlink.Inode) },
 
 			Field: key,
 		}, nil
@@ -362,25 +363,25 @@ func (m *Model) GetEventType(key string) (string, error) {
 		return "open", nil
 
 	case "process.gid":
-		return "", nil
+		return "*", nil
 
 	case "process.name":
-		return "", nil
+		return "*", nil
 
 	case "process.pid":
-		return "", nil
+		return "*", nil
 
 	case "process.pidns":
-		return "", nil
+		return "*", nil
 
 	case "process.tid":
-		return "", nil
+		return "*", nil
 
 	case "process.tty_name":
 		return "", nil
 
 	case "process.uid":
-		return "", nil
+		return "*", nil
 
 	case "rename.newfilename":
 		return "rename", nil
@@ -409,4 +410,213 @@ func (m *Model) GetEventType(key string) (string, error) {
 	}
 
 	return "", errors.Wrap(ErrFieldNotFound, key)
+}
+
+func (m *Model) SetEventValue(key string, value interface{}) error {
+	var ok bool
+	switch key {
+
+	case "container.id":
+
+		if m.event.Container.ID, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "event.retval":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Event.Retval = int64(v)
+		return nil
+
+	case "event.type":
+
+	case "mkdir.filename":
+
+		if m.event.Mkdir.PathnameStr, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "mkdir.inode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Mkdir.Inode = uint64(v)
+		return nil
+
+	case "mkdir.mode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Mkdir.Mode = int32(v)
+		return nil
+
+	case "open.filename":
+
+		if m.event.Open.PathnameStr, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "open.flags":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Open.Flags = uint32(v)
+		return nil
+
+	case "open.inode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Open.Inode = uint64(v)
+		return nil
+
+	case "open.mode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Open.Mode = uint32(v)
+		return nil
+
+	case "process.gid":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Process.GID = uint32(v)
+		return nil
+
+	case "process.name":
+
+		if m.event.Process.Comm, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "process.pid":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Process.Pid = uint32(v)
+		return nil
+
+	case "process.pidns":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Process.Pidns = uint64(v)
+		return nil
+
+	case "process.tid":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Process.Tid = uint32(v)
+		return nil
+
+	case "process.tty_name":
+
+		if m.event.Process.TTYName, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "process.uid":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Process.UID = uint32(v)
+		return nil
+
+	case "rename.newfilename":
+
+		if m.event.Rename.TargetPathnameStr, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "rename.newinode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Rename.TargetInode = uint64(v)
+		return nil
+
+	case "rename.oldfilename":
+
+		if m.event.Rename.SrcPathnameStr, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "rename.oldinode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Rename.SrcInode = uint64(v)
+		return nil
+
+	case "rmdir.filename":
+
+		if m.event.Rmdir.PathnameStr, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "rmdir.inode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Rmdir.Inode = uint64(v)
+		return nil
+
+	case "unlink.filename":
+
+		if m.event.Unlink.PathnameStr, ok = value.(string); !ok {
+			return ErrWrongValueType
+		}
+		return nil
+
+	case "unlink.inode":
+
+		v, ok := value.(int)
+		if !ok {
+			return ErrWrongValueType
+		}
+		m.event.Unlink.Inode = uint64(v)
+		return nil
+
+	}
+
+	return errors.Wrap(ErrFieldNotFound, key)
 }

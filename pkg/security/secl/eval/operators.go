@@ -8,19 +8,19 @@ import (
 	"github.com/pkg/errors"
 )
 
-func IntNot(a *IntEvaluator, opts *Opts, state *State) *IntEvaluator {
-	isPartialLeaf := a.IsPartial
+func IntNot(a *IntEvaluator, opts *Opts, state *state) *IntEvaluator {
+	isPartialLeaf := a.isPartial
 	if a.Field != "" && state.field != "" && a.Field != state.field {
 		isPartialLeaf = true
 	}
 
-	if a.Eval != nil {
-		ea := a.Eval
+	if a.EvalFnc != nil {
+		ea := a.EvalFnc
 		return &IntEvaluator{
-			Eval: func(ctx *Context) int {
+			EvalFnc: func(ctx *Context) int {
 				return ^ea(ctx)
 			},
-			DebugEval: func(ctx *Context) int {
+			DebugEvalFnc: func(ctx *Context) int {
 				ctx.evalDepth++
 				op := ea(ctx)
 				result := ^ea(ctx)
@@ -28,22 +28,22 @@ func IntNot(a *IntEvaluator, opts *Opts, state *State) *IntEvaluator {
 				ctx.evalDepth--
 				return result
 			},
-			IsPartial: isPartialLeaf,
+			isPartial: isPartialLeaf,
 		}
 	}
 
 	return &IntEvaluator{
 		Value:     ^a.Value,
-		IsPartial: isPartialLeaf,
+		isPartial: isPartialLeaf,
 	}
 }
 
-func StringMatches(a *StringEvaluator, b *StringEvaluator, not bool, opts *Opts, state *State) (*BoolEvaluator, error) {
-	if b.Eval != nil {
+func StringMatches(a *StringEvaluator, b *StringEvaluator, not bool, opts *Opts, state *state) (*BoolEvaluator, error) {
+	if b.EvalFnc != nil {
 		return nil, errors.New("regex has to be a scalar string")
 	}
 
-	isPartialLeaf := a.IsPartial
+	isPartialLeaf := a.isPartial
 	if a.Field != "" && state.field != "" && a.Field != state.field {
 		isPartialLeaf = true
 	}
@@ -54,17 +54,21 @@ func StringMatches(a *StringEvaluator, b *StringEvaluator, not bool, opts *Opts,
 		return nil, err
 	}
 
-	if a.Eval != nil {
-		ea := a.Eval
+	if a.Field != "" {
+		state.UpdateFieldValues(a.Field, FieldValue{Value: b.Value, Type: PatternValueType})
+	}
+
+	if a.EvalFnc != nil {
+		ea := a.EvalFnc
 		return &BoolEvaluator{
-			Eval: func(ctx *Context) bool {
+			EvalFnc: func(ctx *Context) bool {
 				result := re.MatchString(ea(ctx))
 				if not {
 					return !result
 				}
 				return result
 			},
-			DebugEval: func(ctx *Context) bool {
+			DebugEvalFnc: func(ctx *Context) bool {
 				ctx.evalDepth++
 				op := ea(ctx)
 				result := re.MatchString(op)
@@ -75,7 +79,7 @@ func StringMatches(a *StringEvaluator, b *StringEvaluator, not bool, opts *Opts,
 				ctx.evalDepth--
 				return result
 			},
-			IsPartial: isPartialLeaf,
+			isPartial: isPartialLeaf,
 		}, nil
 	}
 
@@ -85,30 +89,30 @@ func StringMatches(a *StringEvaluator, b *StringEvaluator, not bool, opts *Opts,
 		if not {
 			return &BoolEvaluator{
 				Value:     !ea,
-				IsPartial: isPartialLeaf,
+				isPartial: isPartialLeaf,
 			}, nil
 		}
 	}
 
 	return &BoolEvaluator{
 		Value:     ea,
-		IsPartial: isPartialLeaf,
+		isPartial: isPartialLeaf,
 	}, nil
 }
 
-func Not(a *BoolEvaluator, opts *Opts, state *State) *BoolEvaluator {
-	isPartialLeaf := a.IsPartial
+func Not(a *BoolEvaluator, opts *Opts, state *state) *BoolEvaluator {
+	isPartialLeaf := a.isPartial
 	if a.Field != "" && state.field != "" && a.Field != state.field {
 		isPartialLeaf = true
 	}
 
-	if a.Eval != nil {
+	if a.EvalFnc != nil {
 		ea := func(ctx *Context) bool {
-			return !a.Eval(ctx)
+			return !a.EvalFnc(ctx)
 		}
 
 		if state.field != "" {
-			if a.IsPartial {
+			if a.isPartial {
 				ea = func(ctx *Context) bool {
 					return true
 				}
@@ -116,16 +120,16 @@ func Not(a *BoolEvaluator, opts *Opts, state *State) *BoolEvaluator {
 		}
 
 		return &BoolEvaluator{
-			Eval: ea,
-			DebugEval: func(ctx *Context) bool {
+			EvalFnc: ea,
+			DebugEvalFnc: func(ctx *Context) bool {
 				ctx.evalDepth++
-				op := a.Eval(ctx)
+				op := a.EvalFnc(ctx)
 				result := !op
 				ctx.Logf("Evaluating ! %v => %v", op, result)
 				ctx.evalDepth--
 				return result
 			},
-			IsPartial: isPartialLeaf,
+			isPartial: isPartialLeaf,
 		}
 	}
 
@@ -136,23 +140,23 @@ func Not(a *BoolEvaluator, opts *Opts, state *State) *BoolEvaluator {
 
 	return &BoolEvaluator{
 		Value:     value,
-		IsPartial: isPartialLeaf,
+		isPartial: isPartialLeaf,
 	}
 }
 
-func Minus(a *IntEvaluator, opts *Opts, state *State) *IntEvaluator {
-	isPartialLeaf := a.IsPartial
+func Minus(a *IntEvaluator, opts *Opts, state *state) *IntEvaluator {
+	isPartialLeaf := a.isPartial
 	if a.Field != "" && state.field != "" && a.Field != state.field {
 		isPartialLeaf = true
 	}
 
-	if a.Eval != nil {
-		ea := a.Eval
+	if a.EvalFnc != nil {
+		ea := a.EvalFnc
 		return &IntEvaluator{
-			Eval: func(ctx *Context) int {
+			EvalFnc: func(ctx *Context) int {
 				return -ea(ctx)
 			},
-			DebugEval: func(ctx *Context) int {
+			DebugEvalFnc: func(ctx *Context) int {
 				ctx.evalDepth++
 				op := ea(ctx)
 				result := -op
@@ -160,26 +164,32 @@ func Minus(a *IntEvaluator, opts *Opts, state *State) *IntEvaluator {
 				ctx.evalDepth--
 				return result
 			},
-			IsPartial: isPartialLeaf,
+			isPartial: isPartialLeaf,
 		}
 	}
 
 	return &IntEvaluator{
 		Value:     -a.Value,
-		IsPartial: isPartialLeaf,
+		isPartial: isPartialLeaf,
 	}
 }
 
-func StringArrayContains(a *StringEvaluator, b *StringArray, not bool, opts *Opts, state *State) *BoolEvaluator {
-	isPartialLeaf := a.IsPartial
+func StringArrayContains(a *StringEvaluator, b *StringArray, not bool, opts *Opts, state *state) *BoolEvaluator {
+	isPartialLeaf := a.isPartial
 	if a.Field != "" && state.field != "" && a.Field != state.field {
 		isPartialLeaf = true
 	}
 
-	if a.Eval != nil {
-		ea := a.Eval
+	if a.Field != "" {
+		for _, value := range b.Values {
+			state.UpdateFieldValues(a.Field, FieldValue{Value: value, Type: ScalarValueType})
+		}
+	}
+
+	if a.EvalFnc != nil {
+		ea := a.EvalFnc
 		return &BoolEvaluator{
-			Eval: func(ctx *Context) bool {
+			EvalFnc: func(ctx *Context) bool {
 				s := ea(ctx)
 				i := sort.SearchStrings(b.Values, s)
 				result := i < len(b.Values) && b.Values[i] == s
@@ -188,7 +198,7 @@ func StringArrayContains(a *StringEvaluator, b *StringArray, not bool, opts *Opt
 				}
 				return result
 			},
-			DebugEval: func(ctx *Context) bool {
+			DebugEvalFnc: func(ctx *Context) bool {
 				ctx.evalDepth++
 				s := ea(ctx)
 				i := sort.SearchStrings(b.Values, s)
@@ -200,7 +210,7 @@ func StringArrayContains(a *StringEvaluator, b *StringArray, not bool, opts *Opt
 				ctx.evalDepth--
 				return result
 			},
-			IsPartial: isPartialLeaf,
+			isPartial: isPartialLeaf,
 		}
 	}
 
@@ -215,20 +225,26 @@ func StringArrayContains(a *StringEvaluator, b *StringArray, not bool, opts *Opt
 
 	return &BoolEvaluator{
 		Value:     ea,
-		IsPartial: isPartialLeaf,
+		isPartial: isPartialLeaf,
 	}
 }
 
-func IntArrayContains(a *IntEvaluator, b *IntArray, not bool, opts *Opts, state *State) *BoolEvaluator {
-	isPartialLeaf := a.IsPartial
+func IntArrayContains(a *IntEvaluator, b *IntArray, not bool, opts *Opts, state *state) *BoolEvaluator {
+	isPartialLeaf := a.isPartial
 	if a.Field != "" && state.field != "" && a.Field != state.field {
 		isPartialLeaf = true
 	}
 
-	if a.Eval != nil {
-		ea := a.Eval
+	if a.Field != "" {
+		for _, value := range b.Values {
+			state.UpdateFieldValues(a.Field, FieldValue{Value: value, Type: ScalarValueType})
+		}
+	}
+
+	if a.EvalFnc != nil {
+		ea := a.EvalFnc
 		return &BoolEvaluator{
-			Eval: func(ctx *Context) bool {
+			EvalFnc: func(ctx *Context) bool {
 				ctx.evalDepth++
 				n := ea(ctx)
 				i := sort.SearchInts(b.Values, n)
@@ -239,7 +255,7 @@ func IntArrayContains(a *IntEvaluator, b *IntArray, not bool, opts *Opts, state 
 				ctx.evalDepth--
 				return result
 			},
-			DebugEval: func(ctx *Context) bool {
+			DebugEvalFnc: func(ctx *Context) bool {
 				ctx.evalDepth++
 				n := ea(ctx)
 				i := sort.SearchInts(b.Values, n)
@@ -251,7 +267,7 @@ func IntArrayContains(a *IntEvaluator, b *IntArray, not bool, opts *Opts, state 
 				ctx.evalDepth--
 				return result
 			},
-			IsPartial: isPartialLeaf,
+			isPartial: isPartialLeaf,
 		}
 	}
 
@@ -266,6 +282,6 @@ func IntArrayContains(a *IntEvaluator, b *IntArray, not bool, opts *Opts, state 
 
 	return &BoolEvaluator{
 		Value:     ea,
-		IsPartial: isPartialLeaf,
+		isPartial: isPartialLeaf,
 	}
 }

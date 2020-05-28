@@ -24,9 +24,10 @@ import (
 	smodule "github.com/DataDog/datadog-agent/cmd/system-probe/module"
 	aconfig "github.com/DataDog/datadog-agent/pkg/config"
 	"github.com/DataDog/datadog-agent/pkg/security/api"
+	"github.com/DataDog/datadog-agent/pkg/security/config"
 	"github.com/DataDog/datadog-agent/pkg/security/module"
 	"github.com/DataDog/datadog-agent/pkg/security/policy"
-	"github.com/DataDog/datadog-agent/pkg/security/probe"
+	sprobe "github.com/DataDog/datadog-agent/pkg/security/probe"
 	"github.com/DataDog/datadog-agent/pkg/util/log"
 )
 
@@ -63,37 +64,62 @@ const testPolicy = `---
 `
 
 type testModule struct {
+	client   *testClient
+	cancel   context.CancelFunc
+	st       *simpleTest
 	module   smodule.Module
 	listener net.Listener
 }
 
-func newTestModule(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (*testModule, error) {
+type testProbe struct {
+	st     *simpleTest
+	probe  *sprobe.Probe
+	events chan *sprobe.Event
+}
+
+type testEventHandler struct {
+	events chan *sprobe.Event
+}
+
+func (h *testEventHandler) HandleEvent(event *sprobe.Event) {
+	// NOTE(safchain) force unmarshalling in order to call all the resolvers
+	// this should be remove once we will introduce getters on events
+	_ = event.String()
+
+	h.events <- event
+}
+
+func setTestConfig(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (string, error) {
 	tmpl, err := template.New("test-config").Parse(testConfig)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	testPolicyFile, err := ioutil.TempFile("", "secagent-policy")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	defer os.Remove(testPolicyFile.Name())
+
+	fail := func(err error) error {
+		os.Remove(testPolicyFile.Name())
+		return err
+	}
 
 	buffer := new(bytes.Buffer)
 	if err := tmpl.Execute(buffer, map[string]interface{}{
 		"TestPolicy": testPolicyFile.Name(),
 	}); err != nil {
-		return nil, err
+		return "", fail(err)
 	}
 
 	aconfig.Datadog.SetConfigType("yaml")
 	if err := aconfig.Datadog.ReadConfig(buffer); err != nil {
-		return nil, err
+		return "", fail(err)
 	}
 
 	tmpl, err = template.New("test-policy").Parse(testPolicy)
 	if err != nil {
-		return nil, err
+		return "", fail(err)
 	}
 
 	buffer = new(bytes.Buffer)
@@ -101,17 +127,40 @@ func newTestModule(macros []*policy.MacroDefinition, rules []*policy.RuleDefinit
 		"Rules":  rules,
 		"Macros": macros,
 	}); err != nil {
-		return nil, err
+		return "", fail(err)
 	}
 
 	_, err = testPolicyFile.Write(buffer.Bytes())
 	if err != nil {
-		return nil, err
+		return "", fail(err)
 	}
 
 	if err := testPolicyFile.Close(); err != nil {
+		return "", fail(err)
+	}
+
+	return testPolicyFile.Name(), nil
+}
+
+func newTestModule(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (*testModule, error) {
+	st, err := newSimpleTest(macros, rules)
+	if err != nil {
 		return nil, err
 	}
+
+	cfgFilename, err := setTestConfig(macros, rules)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(cfgFilename)
+
+	client, err := newTestClient()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Run(ctx)
 
 	listener, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -131,14 +180,114 @@ func newTestModule(macros []*policy.MacroDefinition, rules []*policy.RuleDefinit
 	go grpcServer.Serve(listener)
 
 	return &testModule{
+		client:   client,
+		cancel:   cancel,
+		st:       st,
 		module:   module,
 		listener: listener,
 	}, nil
 }
 
+func (tm *testModule) Root() string {
+	return tm.st.root
+}
+
+func (tm *testModule) GetEvent() (*sprobe.Event, error) {
+	event, err := tm.client.GetEvent(3 * time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(event.GetData(), &data); err != nil {
+		return nil, err
+	}
+
+	var probeEvent sprobe.Event
+	if err := mapstructure.WeakDecode(data, &probeEvent); err != nil {
+		return nil, err
+	}
+
+	return &probeEvent, nil
+}
+
+func (tm *testModule) Path(filename string) (string, unsafe.Pointer, error) {
+	return tm.st.Path(filename)
+}
+
 func (tm *testModule) Close() {
+	tm.st.Close()
 	tm.module.Close()
 	tm.listener.Close()
+}
+
+func newTestProbe(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (*testProbe, error) {
+	st, err := newSimpleTest(macros, rules)
+	if err != nil {
+		return nil, err
+	}
+
+	cfgFilename, err := setTestConfig(macros, rules)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(cfgFilename)
+
+	config, err := config.NewConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	probe, err := sprobe.NewProbe(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ruleSet, err := module.LoadPolicies(config, probe)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := probe.ApplyRuleSet(ruleSet); err != nil {
+		return nil, err
+	}
+
+	events := make(chan *sprobe.Event, 100)
+
+	handler := &testEventHandler{events: events}
+	probe.SetEventHandler(handler)
+
+	if err := probe.Start(); err != nil {
+		return nil, err
+	}
+
+	return &testProbe{
+		st:     st,
+		probe:  probe,
+		events: events,
+	}, nil
+}
+
+func (tp *testProbe) Root() string {
+	return tp.st.root
+}
+
+func (tp *testProbe) GetEvent(timeout time.Duration) (*sprobe.Event, error) {
+	select {
+	case event := <-tp.events:
+		return event, nil
+	case <-time.After(timeout):
+		return nil, errors.New("timeout")
+	}
+}
+
+func (tp *testProbe) Path(filename string) (string, unsafe.Pointer, error) {
+	return tp.st.Path(filename)
+}
+
+func (tp *testProbe) Close() {
+	tp.st.Close()
+	tp.probe.Stop()
 }
 
 type testClient struct {
@@ -202,16 +351,10 @@ func (tc *testClient) Close() {
 }
 
 type simpleTest struct {
-	module *testModule
-	client *testClient
-	cancel context.CancelFunc
-	root   string
+	root string
 }
 
 func (t *simpleTest) Close() {
-	t.module.Close()
-	t.client.Close()
-	t.cancel()
 	os.RemoveAll(t.root)
 }
 
@@ -226,25 +369,6 @@ func (t *simpleTest) Path(filename string) (string, unsafe.Pointer, error) {
 		return "", nil, err
 	}
 	return filename, unsafe.Pointer(filenamePtr), nil
-}
-
-func (t *simpleTest) GetEvent() (*probe.Event, error) {
-	event, err := t.client.GetEvent(3 * time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	var data map[string]interface{}
-	if err := json.Unmarshal(event.GetData(), &data); err != nil {
-		return nil, err
-	}
-
-	var probeEvent probe.Event
-	if err := mapstructure.WeakDecode(data, &probeEvent); err != nil {
-		return nil, err
-	}
-
-	return &probeEvent, nil
 }
 
 func newSimpleTest(macros []*policy.MacroDefinition, rules []*policy.RuleDefinition) (*simpleTest, error) {
@@ -294,20 +418,6 @@ func newSimpleTest(macros []*policy.MacroDefinition, rules []*policy.RuleDefinit
 			return nil, err
 		}
 	}
-
-	t.module, err = newTestModule(macros, rules)
-	if err != nil {
-		return nil, err
-	}
-
-	t.client, err = newTestClient()
-	if err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.client.Run(ctx)
-	t.cancel = cancel
 
 	return t, nil
 }
