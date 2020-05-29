@@ -160,17 +160,22 @@ func start(cmd *cobra.Command, args []string) error {
 	if complianceEnabled {
 		checkInterval := config.Datadog.GetDuration("compliance_config.check_interval")
 		log.Infof("Running compliance checks every %s", checkInterval.String())
+	} else {
+		log.Info("Datadog compliance agent disabled by config")
 	}
 
-	client, err := agent.NewEventClient()
-	if err != nil {
-		return err
+	var runtimeSecurityAgent *agent.RuntimeSecurityAgent
+	runtimeSecurityEnabled := config.Datadog.GetBool("runtime_security_config.enabled")
+	if runtimeSecurityEnabled {
+		runtimeSecurityAgent, err = agent.NewRuntimeSecurityAgent()
+		if err != nil {
+			return log.Errorf("unable to create a runtime security agent instance: %v", err)
+		}
+		runtimeSecurityAgent.Start()
+		log.Info("Datadog runtime security agent is now running")
+	} else {
+		log.Info("Datadog runtime security agent disabled by config")
 	}
-
-	go client.Start()
-	defer client.Stop()
-
-	log.Infof("Datadog Security Agent is now running.")
 
 	// Setup a channel to catch OS signals
 	signalCh := make(chan os.Signal, 1)
@@ -184,6 +189,10 @@ func start(cmd *cobra.Command, args []string) error {
 
 	if stopCh != nil {
 		close(stopCh)
+	}
+
+	if runtimeSecurityEnabled {
+		runtimeSecurityAgent.Stop()
 	}
 
 	log.Info("See ya!")
