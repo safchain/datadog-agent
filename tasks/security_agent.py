@@ -69,3 +69,6 @@ def build(ctx, race=False, go_version=None, incremental_build=False,
     }
 
     ctx.run(cmd.format(**args), env=env)
+
+    cmd = "go run ./pkg/config/render_config.go security-agent ./pkg/config/config_template.yaml ./cmd/agent/dist/datadog-security.yaml"
+    ctx.run(cmd, env=env)
