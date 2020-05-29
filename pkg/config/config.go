@@ -684,6 +684,7 @@ func initConfig(config Config) {
 	config.BindEnvAndSetDefault("runtime_security_config.perf_map_page_count", 128)
 	config.BindEnvAndSetDefault("runtime_security_config.max_kernel_filters", 128)
 	config.BindEnvAndSetDefault("runtime_security_config.policies", []interface{}{})
+	config.BindEnvAndSetDefault("runtime_security_config.system_probe_addr", "localhost:8787")
 	config.BindEnvAndSetDefault("compliance_config.enabled", true)
 	config.BindEnvAndSetDefault("compliance_config.check_interval", 20*time.Minute)
 
