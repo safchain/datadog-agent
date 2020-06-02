@@ -49,6 +49,10 @@ func (m *testModel) SetEvent(event interface{}) {
 	m.event = event.(*testEvent)
 }
 
+func (m *testModel) GetEvent() Event {
+	return m.event
+}
+
 func (m *testModel) GetEvaluator(key string) (interface{}, error) {
 	switch key {
 
@@ -129,7 +133,51 @@ func (m *testModel) GetEvaluator(key string) (interface{}, error) {
 	return nil, errors.Wrap(ErrEvaluatorNotFound, key)
 }
 
-func (m *testModel) GetTags(key string) ([]string, error) {
+func (e *testEvent) GetFieldValue(key string) (interface{}, error) {
+	switch key {
+
+	case "process.name":
+
+		return e.process.name, nil
+
+	case "process.uid":
+
+		return e.process.uid, nil
+
+	case "process.gid":
+
+		return e.process.gid, nil
+
+	case "process.is_root":
+
+		return e.process.isRoot, nil
+
+	case "open.filename":
+
+		return e.open.filename, nil
+
+	case "open.flags":
+
+		return e.open.flags, nil
+
+	case "open.mode":
+
+		return e.open.mode, nil
+
+	case "mkdir.filename":
+
+		return e.mkdir.filename, nil
+
+	case "mkdir.mode":
+
+		return e.mkdir.mode, nil
+
+	}
+
+	return nil, errors.Wrap(ErrEvaluatorNotFound, key)
+}
+
+func (e *testEvent) GetFieldTags(key string) ([]string, error) {
 	switch key {
 
 	case "process.name":
@@ -173,7 +221,7 @@ func (m *testModel) GetTags(key string) ([]string, error) {
 	return nil, errors.Wrap(ErrTagsNotFound, key)
 }
 
-func (m *testModel) GetEventType(key string) (string, error) {
+func (e *testEvent) GetFieldEventType(key string) (string, error) {
 	switch key {
 
 	case "process.name":
@@ -217,52 +265,52 @@ func (m *testModel) GetEventType(key string) (string, error) {
 	return "", errors.Wrap(ErrEventTypeNotFound, key)
 }
 
-func (m *testModel) SetEventValue(key string, value interface{}) error {
+func (e *testEvent) SetFieldValue(key string, value interface{}) error {
 	switch key {
 
 	case "process.name":
 
-		m.event.process.name = value.(string)
+		e.process.name = value.(string)
 		return nil
 
 	case "process.uid":
 
-		m.event.process.uid = value.(int)
+		e.process.uid = value.(int)
 		return nil
 
 	case "process.gid":
 
-		m.event.process.gid = value.(int)
+		e.process.gid = value.(int)
 		return nil
 
 	case "process.is_root":
 
-		m.event.process.isRoot = value.(bool)
+		e.process.isRoot = value.(bool)
 		return nil
 
 	case "open.filename":
 
-		m.event.open.filename = value.(string)
+		e.open.filename = value.(string)
 		return nil
 
 	case "open.flags":
 
-		m.event.open.flags = value.(int)
+		e.open.flags = value.(int)
 		return nil
 
 	case "open.mode":
 
-		m.event.open.mode = value.(int)
+		e.open.mode = value.(int)
 		return nil
 
 	case "mkdir.filename":
 
-		m.event.mkdir.filename = value.(string)
+		e.mkdir.filename = value.(string)
 		return nil
 
 	case "mkdir.mode":
 
-		m.event.mkdir.mode = value.(int)
+		e.mkdir.mode = value.(int)
 		return nil
 
 	}
