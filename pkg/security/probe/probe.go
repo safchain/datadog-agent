@@ -2,6 +2,7 @@ package probe
 
 import (
 	"bytes"
+	"strings"
 
 	"github.com/iovisor/gobpf/elf"
 
@@ -31,12 +32,18 @@ type KProbe struct {
 	SetFilterPolicy func(probe *Probe, mode PolicyMode) error
 }
 
+var syscallPrefix string
+
 func getSyscallFnName(name string) string {
-	syscall, err := elf.GetSyscallFnName(name)
-	if err != nil {
-		panic(err)
+	if syscallPrefix == "" {
+		syscall, err := elf.GetSyscallFnName("open")
+		if err != nil {
+			panic(err)
+		}
+		syscallPrefix = strings.ReplaceAll(syscall, "open", "")
 	}
-	return syscall
+
+	return syscallPrefix + name
 }
 
 var AllKProbes = []*KProbe{
