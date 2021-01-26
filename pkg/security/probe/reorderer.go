@@ -40,115 +40,141 @@ func (p *reOrdererNodePool) free(node *reOrdererNode) {
 	}
 }
 
-type reOrdererList struct {
-	head            *reOrdererNode
-	tail            *reOrdererNode
-	size            uint64
-	pool            *reOrdererNodePool
-	placeholderSize uint64
-	windowSize      uint64
-}
-
 type reOrdererNode struct {
-	cpu       uint64
-	timestamp uint64
-	data      []byte
-	next      *reOrdererNode
-	prev      *reOrdererNode
-	nextFree  *reOrdererNode
+	cpu        uint64
+	timestamp  uint64
+	data       []byte
+	nextFree   *reOrdererNode
+	generation uint64
 }
 
-func (l *reOrdererList) enqueue(cpu uint64, data []byte, tm uint64) {
-	node := l.pool.alloc()
+type reOrdererHeap struct {
+	heap []*reOrdererNode
+	pool *reOrdererNodePool
+}
+
+func (h *reOrdererHeap) len() uint64 {
+	return uint64(len(h.heap))
+}
+
+func (h *reOrdererHeap) swap(i, j int) {
+	h.heap[i], h.heap[j] = h.heap[j], h.heap[i]
+}
+
+func (h *reOrdererHeap) less(i, j int) bool {
+	return h.heap[i].timestamp < h.heap[j].timestamp
+}
+
+func (h *reOrdererHeap) up(node *reOrdererNode, i int, metric *ReOrdererMetric) {
+	for {
+		parent := (i - 1) / 2
+		if parent == i || !h.less(i, parent) {
+			return
+		}
+		h.swap(parent, i)
+		i = parent
+
+		metric.TotalDepth++
+	}
+}
+
+func (h *reOrdererHeap) down(i int, n int, metric *ReOrdererMetric) {
+	for {
+		left := 2*i + 1
+		if left >= n || left < 0 {
+			return
+		}
+		v := left
+		if right := left + 1; right < n && h.less(right, left) {
+			v = right
+		}
+		if !h.less(v, i) {
+			return
+		}
+		h.swap(i, v)
+		i = v
+
+		metric.TotalDepth++
+	}
+}
+
+func (h *reOrdererHeap) enqueue(cpu uint64, data []byte, tm uint64, generation uint64, metric *ReOrdererMetric) {
+	node := h.pool.alloc()
 	node.timestamp = tm
 	node.data = data
 	node.cpu = cpu
+	node.generation = generation
 
-	// if no data consider the node as a placeholder
-	if len(data) == 0 {
-		l.size += l.placeholderSize
-	} else {
-		l.size++
-	}
+	metric.TotalOp++
 
-	if l.head == nil {
-		l.head = node
-		l.tail = node
+	h.heap = append(h.heap, node)
+	h.up(node, len(h.heap)-1, metric)
+}
 
-		return
-	}
-
-	var prev *reOrdererNode
-
-	curr := l.tail
-	for curr != nil {
-		if node.timestamp >= curr.timestamp {
-			if prev != nil {
-				prev.prev = node
-			} else {
-				l.tail = node
-			}
-			node.next = prev
-			curr.next = node
-			node.prev = curr
-
+func (h *reOrdererHeap) dequeue(handler func(cpu uint64, data []byte), generation uint64, metric *ReOrdererMetric) {
+	for {
+		n := len(h.heap)
+		if n == 0 {
 			return
 		}
 
-		prev = curr
-		curr = curr.prev
-	}
-
-	l.head.prev = node
-	node.next = l.head
-	l.head = node
-}
-
-func (l *reOrdererList) dequeue(handler func(cpu uint64, data []byte)) {
-	curr := l.head
-	for curr != nil && l.size > l.windowSize {
-		if len(curr.data) != 0 {
-			handler(curr.cpu, curr.data)
-			l.size--
-		} else {
-			l.size -= l.placeholderSize
+		node := h.heap[0]
+		if node.generation > generation {
+			return
 		}
-		next := curr.next
 
-		l.pool.free(curr)
+		i := n - 1
+		h.swap(0, i)
+		h.down(0, i, metric)
 
-		curr = next
-	}
+		h.heap[i] = nil
+		h.heap = h.heap[0:i]
 
-	l.head = curr
-	if curr == nil {
-		l.tail = nil
-	} else {
-		curr.prev = nil
+		metric.TotalOp++
+		handler(node.cpu, node.data)
 	}
 }
 
 // ReOrdererOpts options to pass when creating a new instance of ReOrderer
 type ReOrdererOpts struct {
 	QueueSize  uint64        // size of the chan where the perf data are pushed
-	WindowSize uint64        // number of element to keep for ordering
-	Delay      time.Duration // delay to wait before handling an element outside of the window in millisecond
 	Rate       time.Duration // delay between two time based iterations
+	Retention  uint64        // bucket to keep before dequeueing
+	MetricRate time.Duration // delay between two metric samples
+}
+
+func (r *ReOrdererMetric) zero() {
+	// keep size of avoid overflow between queue/dequeue
+	r.TotalDepth = 0
+	r.TotalOp = 0
+}
+
+// ReOrdererMetric holds reordering metrics
+type ReOrdererMetric struct {
+	TotalOp    uint64
+	TotalDepth uint64
+	QueueSize  uint64
 }
 
 // ReOrderer defines an event re-orderer
 type ReOrderer struct {
 	queue       chan []byte
 	handler     func(cpu uint64, data []byte)
-	list        *reOrdererList
+	heap        *reOrdererHeap
 	extractInfo func(data []byte) (uint64, uint64, error) // cpu, timestamp
 	opts        ReOrdererOpts
+	metric      ReOrdererMetric
+	Metrics     chan ReOrdererMetric
+	generation  uint64
 }
 
 // Start event handler loop
 func (r *ReOrderer) Start(ctx context.Context) {
-	ticker := time.NewTicker(r.opts.Rate)
-	defer ticker.Stop()
+	flushTicker := time.NewTicker(r.opts.Rate)
+	defer flushTicker.Stop()
+
+	metricTicker := time.NewTicker(r.opts.MetricRate)
+	defer metricTicker.Stop()
 
 	var lastTm, tm, cpu uint64
 	var err error
@@ -169,18 +195,19 @@ func (r *ReOrderer) Start(ctx context.Context) {
 			}
 			lastTm = tm
 
-			r.list.enqueue(cpu, data, tm)
-			r.list.dequeue(r.handler)
-		case <-ticker.C:
-			if tail := r.list.tail; tail == nil {
-				continue
+			r.heap.enqueue(cpu, data, tm, r.generation, &r.metric)
+			r.heap.dequeue(r.handler, r.generation-r.opts.Retention, &r.metric)
+
+		case <-flushTicker.C:
+			r.generation++
+		case <-metricTicker.C:
+			r.metric.QueueSize = r.heap.len()
+
+			select {
+			case r.Metrics <- r.metric:
 			}
 
-			if size := r.list.size + uint64(len(r.queue)); size > r.opts.WindowSize {
-				continue
-			}
-
-			r.queue <- nil
+			r.metric.zero()
 		case <-ctx.Done():
 			return
 		}
@@ -197,12 +224,12 @@ func NewReOrderer(handler func(cpu uint64, data []byte), extractInfo func(data [
 	return &ReOrderer{
 		queue:   make(chan []byte, opts.QueueSize),
 		handler: handler,
-		list: &reOrdererList{
-			placeholderSize: opts.WindowSize / 3,
-			windowSize:      opts.WindowSize,
-			pool:            &reOrdererNodePool{},
+		heap: &reOrdererHeap{
+			pool: &reOrdererNodePool{},
 		},
 		extractInfo: extractInfo,
 		opts:        opts,
+		Metrics:     make(chan ReOrdererMetric, 100000),
+		generation:  1,
 	}
 }
