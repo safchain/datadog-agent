@@ -436,7 +436,7 @@ func (p *Probe) handleEvent(CPU uint64, data []byte) {
 			return
 		}
 
-		p.resolvers.ProcessResolver.SetTimestamps(event.processCacheEntry)
+		p.resolvers.ProcessResolver.ApplyBootTime(event.processCacheEntry)
 
 		p.resolvers.ProcessResolver.AddForkEntry(event.ProcessContext.Pid, event.processCacheEntry)
 	case model.ExecEventType:
@@ -458,7 +458,7 @@ func (p *Probe) handleEvent(CPU uint64, data []byte) {
 
 		p.resolvers.ProcessResolver.SetProcessUsersGroups(event.processCacheEntry)
 
-		p.resolvers.ProcessResolver.SetTimestamps(event.processCacheEntry)
+		p.resolvers.ProcessResolver.ApplyBootTime(event.processCacheEntry)
 
 		p.resolvers.ProcessResolver.AddExecEntry(event.ProcessContext.Pid, event.processCacheEntry)
 
