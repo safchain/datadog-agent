@@ -163,7 +163,7 @@ func (ev *Event) ResolveContainerTags(e *model.ContainerContext) []string {
 // UnmarshalProcess unmarshal a Process
 func (ev *Event) UnmarshalProcess(data []byte) (int, error) {
 	// reset the process cache entry of the current event
-	entry := NewProcessCacheEntry()
+	entry := ev.resolvers.ProcessResolver.NewProcessCacheEntry()
 	entry.Pid = ev.ProcessContext.Pid
 	entry.Tid = ev.ProcessContext.Tid
 
@@ -366,11 +366,6 @@ func (ev *Event) ResolveSetgidFSGroup(e *model.SetgidEvent) string {
 		e.FSGroup, _ = ev.resolvers.UserGroupResolver.ResolveUser(int(e.FSGID))
 	}
 	return e.FSGroup
-}
-
-// NewProcessCacheEntry returns an empty instance of ProcessCacheEntry
-func NewProcessCacheEntry() *model.ProcessCacheEntry {
-	return &model.ProcessCacheEntry{}
 }
 
 func (ev *Event) String() string {

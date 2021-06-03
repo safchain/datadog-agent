@@ -408,9 +408,44 @@ type OpenEvent struct {
 	Mode  uint32    `field:"file.destination.mode"`
 }
 
+var zeroProcessContext ProcessContext
+
 // ProcessCacheEntry this struct holds process context kept in the process tree
 type ProcessCacheEntry struct {
 	ProcessContext
+
+	refCount  uint64
+	onRelease func(_ *ProcessCacheEntry)
+}
+
+// Reset the entry
+func (e *ProcessCacheEntry) Reset() {
+	e.ProcessContext = zeroProcessContext
+}
+
+// Retain increment ref counter
+func (e *ProcessCacheEntry) Retain() {
+	e.refCount++
+}
+
+// Release decrement and eventually release the entry
+func (e *ProcessCacheEntry) Release() {
+	e.refCount--
+	if e.refCount > 0 {
+		return
+	}
+
+	if e.onRelease != nil {
+		e.onRelease(e)
+	}
+}
+
+// NewProcessCacheEntry returns a new process cache entry
+func NewProcessCacheEntry(onRelease func(_ *ProcessCacheEntry)) *ProcessCacheEntry {
+	return &ProcessCacheEntry{
+		refCount:  1,
+		onRelease: onRelease,
+	}
 }
 
 // ProcessAncestorsIterator defines an iterator of ancestors

@@ -14,7 +14,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -128,7 +127,8 @@ type ProcessResolver struct {
 	entryCache    map[uint32]*model.ProcessCacheEntry
 	argsEnvsCache *simplelru.LRU
 
-	argsEnvsPool *ArgsEnvsPool
+	argsEnvsPool          *ArgsEnvsPool
+	processCacheEntryPool *ProcessCacheEntryPool
 }
 
 // ArgsEnvsPool defines a pool for args/envs allocations
@@ -168,6 +168,56 @@ func NewArgsEnvsPool() *ArgsEnvsPool {
 			New: func() interface{} { return &model.ArgsEnvsCacheEntry{} },
 		},
 	}
+}
+
+// ProcessCacheEntryPool defines a pool for process entry allocations
+type ProcessCacheEntryPool struct {
+	pool sync.Pool
+}
+
+// Get returns a cache entry
+func (p *ProcessCacheEntryPool) Get() *model.ProcessCacheEntry {
+	pce := p.pool.Get().(*model.ProcessCacheEntry)
+	pce.Retain()
+
+	return pce
+}
+
+// Put returns a cache entry
+func (p *ProcessCacheEntryPool) Put(pce *model.ProcessCacheEntry) {
+	pce.Reset()
+	p.pool.Put(pce)
+}
+
+// NewProcessCacheEntryPool returns a new ProcessCacheEntryPool pool
+func NewProcessCacheEntryPool(p *ProcessResolver) *ProcessCacheEntryPool {
+	pcep := ProcessCacheEntryPool{pool: sync.Pool{}}
+
+	pcep.pool.New = func() interface{} {
+		return model.NewProcessCacheEntry(func(pce *model.ProcessCacheEntry) {
+			if pce.Ancestor != nil {
+				pce.Ancestor.Release()
+			}
+
+			if pce.ArgsEntry != nil {
+				p.argsEnvsPool.Put(pce.ArgsEntry.ArgsEnvsCacheEntry)
+			}
+			if pce.EnvsEntry != nil {
+				p.argsEnvsPool.Put(pce.EnvsEntry.ArgsEnvsCacheEntry)
+			}
+
+			atomic.AddInt64(&p.cacheSize, -1)
+
+			pcep.Put(pce)
+		})
+	}
+
+	return &pcep
+}
+
+// NewProcessCacheEntry returns a new process cache entry
+func (p *ProcessResolver) NewProcessCacheEntry() *model.ProcessCacheEntry {
+	return p.processCacheEntryPool.Get()
 }
 
 // SendStats sends process resolver metrics
@@ -339,26 +389,9 @@ func (p *ProcessResolver) insertEntry(pid uint32, entry *model.ProcessCacheEntry
 	_ = p.client.Count(metrics.MetricProcessResolverAdded, 1, []string{}, 1.0)
 	atomic.AddInt64(&p.cacheSize, 1)
 
-	var args *model.ArgsEnvsCacheEntry
-	if entry.ArgsEntry != nil {
-		args = entry.ArgsEntry.ArgsEnvsCacheEntry
+	if entry.Ancestor != nil {
+		entry.Ancestor.Retain()
 	}
-
-	var envs *model.ArgsEnvsCacheEntry
-	if entry.EnvsEntry != nil {
-		envs = entry.EnvsEntry.ArgsEnvsCacheEntry
-	}
-
-	runtime.SetFinalizer(entry, func(obj interface{}) {
-		if args != nil {
-			p.argsEnvsPool.Put(args)
-		}
-		if envs != nil {
-			p.argsEnvsPool.Put(envs)
-		}
-
-		atomic.AddInt64(&p.cacheSize, -1)
-	})
 
 	return entry
 }
@@ -393,6 +426,9 @@ func (p *ProcessResolver) deleteEntry(pid uint32, exitTime time.Time) {
 	}
 	entry.Exit(exitTime)
 	delete(p.entryCache, entry.Pid)
+
+	// Eventually release from pool
+	entry.Release()
 }
 
 // DeleteEntry tries to delete an entry in the process cache
@@ -504,7 +540,7 @@ func (p *ProcessResolver) resolveWithKernelMaps(pid, tid uint32) *model.ProcessC
 		return nil
 	}
 
-	entry := NewProcessCacheEntry()
+	entry := p.NewProcessCacheEntry()
 	data := append(entryb, cookieb...)
 
 	if _, err = p.unmarshalFromKernelMaps(entry, data); err != nil {
@@ -764,7 +800,7 @@ func (p *ProcessResolver) syncCache(proc *process.Process) (*model.ProcessCacheE
 		return nil, false
 	}
 
-	entry = NewProcessCacheEntry()
+	entry = p.NewProcessCacheEntry()
 
 	// update the cache entry
 	if err := p.enrichEventFromProc(entry, proc); err != nil {
@@ -864,7 +900,7 @@ func NewProcessResolver(probe *Probe, resolvers *Resolvers, client *statsd.Clien
 		return nil, err
 	}
 
-	return &ProcessResolver{
+	p := &ProcessResolver{
 		probe:         probe,
 		resolvers:     resolvers,
 		client:        client,
@@ -873,7 +909,10 @@ func NewProcessResolver(probe *Probe, resolvers *Resolvers, client *statsd.Clien
 		argsEnvsCache: argsEnvsCache,
 		state:         snapshotting,
 		argsEnvsPool:  NewArgsEnvsPool(),
-	}, nil
+	}
+	p.processCacheEntryPool = NewProcessCacheEntryPool(p)
+
+	return p, nil
 }
 
 // NewProcessResolverOpts returns a new set of process resolver options
