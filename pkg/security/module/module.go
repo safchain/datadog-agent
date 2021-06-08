@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/trace"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -54,12 +55,24 @@ type Module struct {
 	sigupChan      chan os.Signal
 	ctx            context.Context
 	cancelFnc      context.CancelFunc
+	trace          *os.File
 }
 
 // Register the runtime security agent module
 func (m *Module) Register(_ *mux.Router) error {
 	// force socket cleanup of previous socket not cleanup
 	os.Remove(m.config.SocketPath)
+
+	f, err := os.Create("/tmp/trace.out")
+	if err != nil {
+		panic(err)
+	}
+	m.trace = f
+
+	err = trace.Start(f)
+	if err != nil {
+		panic(err)
+	}
 
 	ln, err := net.Listen("unix", m.config.SocketPath)
 	if err != nil {
@@ -231,6 +244,9 @@ func (m *Module) Close() {
 	}
 
 	m.probe.Close()
+
+	trace.Stop()
+	m.trace.Close()
 }
 
 // EventDiscarderFound is called by the ruleset when a new discarder discovered

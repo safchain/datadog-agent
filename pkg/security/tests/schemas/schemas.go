@@ -108,7 +108,7 @@ func bindataContainerJson() (*asset, error) {
 		name:        "/container.json",
 		size:        236,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -136,7 +136,7 @@ func bindataContainercontextJson() (*asset, error) {
 		name:        "/container_context.json",
 		size:        274,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -164,7 +164,7 @@ func bindataContainereventJson() (*asset, error) {
 		name:        "/container_event.json",
 		size:        262,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -192,7 +192,7 @@ func bindataContainerpathJson() (*asset, error) {
 		name:        "/container_path.json",
 		size:        150,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -220,7 +220,7 @@ func bindataDatetimeJson() (*asset, error) {
 		name:        "/datetime.json",
 		size:        349,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -248,7 +248,7 @@ func bindataEventJson() (*asset, error) {
 		name:        "/event.json",
 		size:        737,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -276,7 +276,7 @@ func bindataExecSchemaJson() (*asset, error) {
 		name:        "/exec.schema.json",
 		size:        1142,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -304,7 +304,7 @@ func bindataFileJson() (*asset, error) {
 		name:        "/file.json",
 		size:        2396,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -332,7 +332,7 @@ func bindataHosteventJson() (*asset, error) {
 		name:        "/host_event.json",
 		size:        476,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -388,7 +388,7 @@ func bindataProcessJson() (*asset, error) {
 		name:        "/process.json",
 		size:        5772,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -416,7 +416,7 @@ func bindataProcesscontextJson() (*asset, error) {
 		name:        "/process_context.json",
 		size:        1060,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 
@@ -444,7 +444,7 @@ func bindataUsrJson() (*asset, error) {
 		name:        "/usr.json",
 		size:        486,
 		md5checksum: "",
-		mode:        os.FileMode(438),
+		mode:        os.FileMode(420),
 		modTime:     time.Unix(1, 0),
 	}
 

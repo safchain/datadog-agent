@@ -8,6 +8,9 @@
 package model
 
 import (
+	"fmt"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,6 +36,7 @@ func copyProcessContext(parent, child *ProcessCacheEntry) {
 // Exec replace a process
 func (pc *ProcessCacheEntry) Exec(entry *ProcessCacheEntry) {
 	entry.Ancestor = pc
+	pc.Retain()
 
 	// empty and mark as exit previous entry
 	pc.ExitTime = entry.ExecTime
@@ -43,8 +47,10 @@ func (pc *ProcessCacheEntry) Exec(entry *ProcessCacheEntry) {
 
 // Fork returns a copy of the current ProcessCacheEntry
 func (pc *ProcessCacheEntry) Fork(childEntry *ProcessCacheEntry) {
-	childEntry.PPid = pc.Pid
 	childEntry.Ancestor = pc
+	pc.Retain()
+
+	childEntry.PPid = pc.Pid
 	childEntry.TTYName = pc.TTYName
 	childEntry.Comm = pc.Comm
 	childEntry.FileFields = pc.FileFields
@@ -57,8 +63,8 @@ func (pc *ProcessCacheEntry) Fork(childEntry *ProcessCacheEntry) {
 	childEntry.Credentials = pc.Credentials
 	childEntry.Cookie = pc.Cookie
 
-	childEntry.ArgsEntry = pc.ArgsEntry
-	childEntry.EnvsEntry = pc.EnvsEntry
+	childEntry.ArgsEntry = pc.ArgsEntry.Clone()
+	childEntry.EnvsEntry = pc.EnvsEntry.Clone()
 }
 
 /*func (pc *ProcessCacheEntry) String() string {
@@ -74,13 +80,96 @@ func (pc *ProcessCacheEntry) Fork(childEntry *ProcessCacheEntry) {
 	return s
 }*/
 
-// ArgsEnvsCacheEntry defines a args/envs base entry
-type ArgsEnvsCacheEntry struct {
+type ArgsEnvs struct {
 	ID        uint32
 	Size      uint32
 	ValuesRaw [256]byte
-	Next      *ArgsEnvsCacheEntry
-	Last      *ArgsEnvsCacheEntry
+}
+
+// ArgsEnvsCacheEntry defines a args/envs base entry
+type ArgsEnvsCacheEntry struct {
+	ArgsEnvs
+
+	next *ArgsEnvsCacheEntry
+	last *ArgsEnvsCacheEntry
+
+	refCount  uint64
+	onRelease func(_ *ArgsEnvsCacheEntry)
+}
+
+func Goid() int {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("panic recover:panic info:%v", err)
+		}
+	}()
+
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+	id, err := strconv.Atoi(idField)
+	if err != nil {
+		panic(fmt.Sprintf("cannot get goroutine id: %v", err))
+	}
+	return id
+}
+
+// Reset the entry
+func (p *ArgsEnvsCacheEntry) release() {
+	entry := p
+	fmt.Printf("--------------------------: %d\n", Goid())
+
+	for entry != nil {
+		next := entry.next
+
+		entry.next = nil
+		entry.last = nil
+		entry.refCount = 0
+
+		// all the element of the list need to return to the
+		// pool
+		fmt.Printf("++++: %p\n", entry)
+		if p.onRelease != nil {
+			p.onRelease(entry)
+		}
+		fmt.Printf("----: %p\n", entry)
+
+		entry = next
+	}
+}
+
+// Append an entry to the list
+func (p *ArgsEnvsCacheEntry) Append(entry *ArgsEnvsCacheEntry) {
+	if p.last != nil {
+		p.last.next = entry
+	} else {
+		p.next = entry
+	}
+	p.last = entry
+}
+
+// Retain increment ref counter
+func (p *ArgsEnvsCacheEntry) Retain() {
+	p.refCount++
+}
+
+// Release decrement and eventually release the entry
+func (p *ArgsEnvsCacheEntry) Release() {
+	p.refCount--
+	if p.refCount > 0 {
+		return
+	}
+
+	p.release()
+}
+
+// NewArgsEnvsCacheEntry returns a new args/env cache entry
+func NewArgsEnvsCacheEntry(onRelease func(_ *ArgsEnvsCacheEntry)) *ArgsEnvsCacheEntry {
+	entry := &ArgsEnvsCacheEntry{
+		onRelease: onRelease,
+	}
+
+	return entry
 }
 
 func (p *ArgsEnvsCacheEntry) toArray() ([]string, bool) {
@@ -89,7 +178,10 @@ func (p *ArgsEnvsCacheEntry) toArray() ([]string, bool) {
 	var values []string
 	var truncated bool
 
+	fmt.Printf("ToArray: %d\n", Goid())
+
 	for entry != nil {
+		fmt.Printf("Array...: %p %p\n", p, entry)
 		v, err := UnmarshalStringArray(entry.ValuesRaw[:entry.Size])
 		if err != nil || entry.Size == 128 {
 			if len(v) > 0 {
@@ -101,7 +193,7 @@ func (p *ArgsEnvsCacheEntry) toArray() ([]string, bool) {
 			values = append(values, v...)
 		}
 
-		entry = entry.Next
+		entry = entry.next
 	}
 
 	return values, truncated
@@ -113,16 +205,39 @@ type ArgsEntry struct {
 
 	Values    []string
 	Truncated bool
+
+	parsed bool
 }
 
 // ToArray returns args as array
 func (p *ArgsEntry) ToArray() ([]string, bool) {
-	if len(p.Values) > 0 {
+	if p.parsed {
 		return p.Values, p.Truncated
 	}
 	p.Values, p.Truncated = p.toArray()
+	p.parsed = true
+
+	// now we have the cache we can free
+	if p.ArgsEnvsCacheEntry != nil {
+		p.release()
+		p.ArgsEnvsCacheEntry = nil
+	}
 
 	return p.Values, p.Truncated
+}
+
+// Clone returns a copy and take care of ref counter
+func (p *ArgsEntry) Clone() *ArgsEntry {
+	if p == nil {
+		return nil
+	}
+
+	n := *p
+	if n.ArgsEnvsCacheEntry != nil {
+		n.ArgsEnvsCacheEntry.Retain()
+	}
+
+	return &n
 }
 
 // EnvsEntry defines a args cache entry
@@ -131,11 +246,27 @@ type EnvsEntry struct {
 
 	Values    map[string]string
 	Truncated bool
+
+	parsed bool
+}
+
+// Clone returns a copy and take care of ref counter
+func (p *EnvsEntry) Clone() *EnvsEntry {
+	if p == nil {
+		return nil
+	}
+
+	n := *p
+	if n.ArgsEnvsCacheEntry != nil {
+		n.ArgsEnvsCacheEntry.Retain()
+	}
+
+	return &n
 }
 
 // ToMap returns envs as map
 func (p *EnvsEntry) ToMap() (map[string]string, bool) {
-	if p.Values != nil {
+	if p.parsed {
 		return p.Values, p.Truncated
 	}
 
@@ -151,6 +282,13 @@ func (p *EnvsEntry) ToMap() (map[string]string, bool) {
 		}
 	}
 	p.Values, p.Truncated = envs, truncated
+	p.parsed = true
+
+	// now we have the cache we can free
+	if p.ArgsEnvsCacheEntry != nil {
+		p.release()
+		p.ArgsEnvsCacheEntry = nil
+	}
 
 	return p.Values, p.Truncated
 }

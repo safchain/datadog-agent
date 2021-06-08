@@ -47,6 +47,21 @@ type Event struct {
 	scrubber            *pconfig.DataScrubber
 }
 
+// Retain the event
+func (ev *Event) Retain() Event {
+	if ev.processCacheEntry != nil {
+		ev.processCacheEntry.Retain()
+	}
+	return *ev
+}
+
+// Release the event
+func (ev *Event) Release() {
+	if ev.processCacheEntry != nil {
+		ev.processCacheEntry.Release()
+	}
+}
+
 // GetPathResolutionError returns the path resolution error as a string if there is one
 func (ev *Event) GetPathResolutionError() error {
 	return ev.pathResolutionError
@@ -449,11 +464,6 @@ func (ev *Event) GetProcessServiceTag() string {
 	}
 
 	return ""
-}
-
-// Clone returns a copy on the event
-func (ev *Event) Clone() Event {
-	return *ev
 }
 
 // NewEvent returns a new event

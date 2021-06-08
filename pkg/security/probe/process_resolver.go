@@ -144,30 +144,28 @@ func (a *ArgsEnvsPool) Get() *model.ArgsEnvsCacheEntry {
 // GetFrom returns a new entry with value from the given entry
 func (a *ArgsEnvsPool) GetFrom(event *model.ArgsEnvsEvent) *model.ArgsEnvsCacheEntry {
 	entry := a.Get()
-	*entry = event.ArgsEnvsCacheEntry
+	entry.ArgsEnvs = event.ArgsEnvs
+
+	fmt.Printf("GetFrom: %p %+v\n", entry, entry)
+
 	return entry
 }
 
 // Put returns a cache entry to the pool
 func (a *ArgsEnvsPool) Put(entry *model.ArgsEnvsCacheEntry) {
-	for entry != nil {
-		// be sure to reset the entry here
-		next := entry.Next
-		entry.Next = nil
-		entry.Last = nil
-
-		a.pool.Put(entry)
-		entry = next
-	}
+	fmt.Printf(">>>>>>>>: %p %+v\n", entry, entry)
+	a.pool.Put(entry)
 }
 
 // NewArgsEnvsPool returns a new ArgsEnvEntry pool
 func NewArgsEnvsPool() *ArgsEnvsPool {
-	return &ArgsEnvsPool{
-		pool: sync.Pool{
-			New: func() interface{} { return &model.ArgsEnvsCacheEntry{} },
-		},
+	ap := ArgsEnvsPool{pool: sync.Pool{}}
+
+	ap.pool.New = func() interface{} {
+		return model.NewArgsEnvsCacheEntry(ap.Put)
 	}
+
+	return &ap
 }
 
 // ProcessCacheEntryPool defines a pool for process entry allocations
@@ -177,10 +175,7 @@ type ProcessCacheEntryPool struct {
 
 // Get returns a cache entry
 func (p *ProcessCacheEntryPool) Get() *model.ProcessCacheEntry {
-	pce := p.pool.Get().(*model.ProcessCacheEntry)
-	pce.Retain()
-
-	return pce
+	return p.pool.Get().(*model.ProcessCacheEntry)
 }
 
 // Put returns a cache entry
@@ -199,11 +194,11 @@ func NewProcessCacheEntryPool(p *ProcessResolver) *ProcessCacheEntryPool {
 				pce.Ancestor.Release()
 			}
 
-			if pce.ArgsEntry != nil {
-				p.argsEnvsPool.Put(pce.ArgsEntry.ArgsEnvsCacheEntry)
+			if pce.ArgsEntry != nil && pce.ArgsEntry.ArgsEnvsCacheEntry != nil {
+				pce.ArgsEntry.ArgsEnvsCacheEntry.Release()
 			}
-			if pce.EnvsEntry != nil {
-				p.argsEnvsPool.Put(pce.EnvsEntry.ArgsEnvsCacheEntry)
+			if pce.EnvsEntry != nil && pce.EnvsEntry.ArgsEnvsCacheEntry != nil {
+				pce.EnvsEntry.ArgsEnvsCacheEntry.Release()
 			}
 
 			atomic.AddInt64(&p.cacheSize, -1)
@@ -238,14 +233,8 @@ func (p *ProcessResolver) UpdateArgsEnvs(event *model.ArgsEnvsEvent) {
 	entry := p.argsEnvsPool.GetFrom(event)
 	if e, found := p.argsEnvsCache.Get(event.ID); found {
 		list := e.(*model.ArgsEnvsCacheEntry)
-		if list.Last == nil {
-			list.Last = entry
-		} else {
-			list.Last.Next = entry
-			list.Last = entry
-		}
+		list.Append(entry)
 	} else {
-		entry.Last = entry
 		p.argsEnvsCache.Add(event.ID, entry)
 	}
 }
@@ -254,6 +243,7 @@ func (p *ProcessResolver) UpdateArgsEnvs(event *model.ArgsEnvsEvent) {
 func (p *ProcessResolver) AddForkEntry(pid uint32, entry *model.ProcessCacheEntry) *model.ProcessCacheEntry {
 	p.Lock()
 	defer p.Unlock()
+
 	return p.insertForkEntry(pid, entry)
 }
 
@@ -383,21 +373,23 @@ func (p *ProcessResolver) retrieveExecFileFields(procExecPath string) (*model.Fi
 	return &fileFields, nil
 }
 
-func (p *ProcessResolver) insertEntry(pid uint32, entry *model.ProcessCacheEntry) *model.ProcessCacheEntry {
+func (p *ProcessResolver) insertEntry(pid uint32, entry, prev *model.ProcessCacheEntry) *model.ProcessCacheEntry {
 	p.entryCache[pid] = entry
+	entry.Retain()
+
+	if prev != nil {
+		prev.Release()
+	}
 
 	_ = p.client.Count(metrics.MetricProcessResolverAdded, 1, []string{}, 1.0)
 	atomic.AddInt64(&p.cacheSize, 1)
-
-	if entry.Ancestor != nil {
-		entry.Ancestor.Retain()
-	}
 
 	return entry
 }
 
 func (p *ProcessResolver) insertForkEntry(pid uint32, entry *model.ProcessCacheEntry) *model.ProcessCacheEntry {
-	if prev := p.entryCache[pid]; prev != nil {
+	prev := p.entryCache[pid]
+	if prev != nil {
 		// this shouldn't happen but it is better to exit the prev and let the new one replace it
 		prev.Exit(entry.ForkTime)
 	}
@@ -407,15 +399,16 @@ func (p *ProcessResolver) insertForkEntry(pid uint32, entry *model.ProcessCacheE
 		parent.Fork(entry)
 	}
 
-	return p.insertEntry(pid, entry)
+	return p.insertEntry(pid, entry, prev)
 }
 
 func (p *ProcessResolver) insertExecEntry(pid uint32, entry *model.ProcessCacheEntry) *model.ProcessCacheEntry {
-	if prev := p.entryCache[pid]; prev != nil {
+	prev := p.entryCache[pid]
+	if prev != nil {
 		prev.Exec(entry)
 	}
 
-	return p.insertEntry(pid, entry)
+	return p.insertEntry(pid, entry, prev)
 }
 
 func (p *ProcessResolver) deleteEntry(pid uint32, exitTime time.Time) {
@@ -425,9 +418,8 @@ func (p *ProcessResolver) deleteEntry(pid uint32, exitTime time.Time) {
 		return
 	}
 	entry.Exit(exitTime)
-	delete(p.entryCache, entry.Pid)
 
-	// Eventually release from pool
+	delete(p.entryCache, entry.Pid)
 	entry.Release()
 }
 
@@ -599,6 +591,12 @@ func (p *ProcessResolver) SetProcessArgs(pce *model.ProcessCacheEntry) {
 			ArgsEnvsCacheEntry: e.(*model.ArgsEnvsCacheEntry),
 		}
 
+		// attach to a process thus retain the head of the chain
+		// note: only the head of the list is retained and when released
+		// the whole list will be released
+		pce.ArgsEntry.ArgsEnvsCacheEntry.Retain()
+
+		// no need to keep it in LRU now as attached to a process
 		p.argsEnvsCache.Remove(pce.ArgsID)
 	}
 }
@@ -621,6 +619,12 @@ func (p *ProcessResolver) SetProcessEnvs(pce *model.ProcessCacheEntry) {
 			ArgsEnvsCacheEntry: e.(*model.ArgsEnvsCacheEntry),
 		}
 
+		// attach to a process thus retain the head of the chain
+		// note: only the head of the list is retained and when released
+		// the whole list will be released
+		pce.EnvsEntry.ArgsEnvsCacheEntry.Retain()
+
+		// no need to keep it in LRU now as attached to a process
 		p.argsEnvsCache.Remove(pce.ArgsID)
 	}
 }
@@ -813,7 +817,7 @@ func (p *ProcessResolver) syncCache(proc *process.Process) (*model.ProcessCacheE
 		entry.Ancestor = parent
 	}
 
-	if entry = p.insertEntry(pid, entry); entry == nil {
+	if entry = p.insertEntry(pid, entry, p.entryCache[pid]); entry == nil {
 		return nil, false
 	}
 
