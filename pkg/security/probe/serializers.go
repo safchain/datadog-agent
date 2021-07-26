@@ -209,6 +209,13 @@ type SELinuxEventSerializer struct {
 	BoolCommit    *selinuxBoolCommitSerializer    `json:"bool_commit,omitempty"`
 }
 
+// DDContextSerializer serializes a span context to JSON
+// easyjson:json
+type DDContextSerializer struct {
+	SpanID  uint64 `json:"span_id,omitempty"`
+	TraceID uint64 `json:"trace_id,omitempty"`
+}
+
 // EventSerializer serializes an event to JSON
 // easyjson:json
 type EventSerializer struct {
@@ -217,6 +224,7 @@ type EventSerializer struct {
 	*SELinuxEventSerializer    `json:"selinux,omitempty"`
 	UserContextSerializer      UserContextSerializer       `json:"usr,omitempty"`
 	ProcessContextSerializer   *ProcessContextSerializer   `json:"process,omitempty"`
+	DDContextSerializer        *DDContextSerializer        `json:"dd,omitempty"`
 	ContainerContextSerializer *ContainerContextSerializer `json:"container,omitempty"`
 	Date                       time.Time                   `json:"date,omitempty"`
 }
@@ -383,11 +391,18 @@ func newProcessCacheEntrySerializer(pce *model.ProcessCacheEntry, e *Event) *Pro
 	return pceSerializer
 }
 
+func newDDContextSerializer(e *Event) *DDContextSerializer {
+	return &DDContextSerializer{
+		SpanID:  e.SpanContext.SpanID,
+		TraceID: e.SpanContext.TraceID,
+	}
+}
+
 func newProcessContextSerializer(entry *model.ProcessCacheEntry, e *Event, r *Resolvers) *ProcessContextSerializer {
 	var ps *ProcessContextSerializer
 
 	if e == nil {
-		// custom events call newProcessContextSerializer with an empty Event
+		// custom events create an empty event
 		e = NewEvent(r, nil)
 		e.ProcessContext = model.ProcessContext{
 			Ancestor: entry,
@@ -477,6 +492,7 @@ func newEventSerializer(event *Event) *EventSerializer {
 			Category: FIMCategory,
 		},
 		ProcessContextSerializer: newProcessContextSerializer(event.ResolveProcessCacheEntry(), event, event.resolvers),
+		DDContextSerializer:      newDDContextSerializer(event),
 		Date:                     event.ResolveEventTimestamp(),
 	}
 
