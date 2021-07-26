@@ -100,3 +100,7 @@ func validateChownSchema(t *testing.T, event *sprobe.Event) bool {
 func validateSELinuxSchema(t *testing.T, event *sprobe.Event) bool {
 	return validateSchema(t, event, "file:///selinux.schema.json")
 }
+
+func validateSpanSchema(t *testing.T, event *sprobe.Event) bool {
+	return validateSchema(t, event, "file:///span.schema.json")
+}
