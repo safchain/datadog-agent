@@ -192,8 +192,8 @@ func NewProbe(config *config.Config, opts Opts) (*Probe, error) {
 		StatsdClient:         opts.StatsdClient,
 		discarderRateLimiter: rate.NewLimiter(rate.Every(time.Second/5), 100),
 		PlatformProbe: PlatformProbe{
-			onStart: make(chan *procmon.ProcessStartNotification),
-			onStop:  make(chan *procmon.ProcessStopNotification),
+			onStart: make(chan *procmon.ProcessStartNotification, 100),
+			onStop:  make(chan *procmon.ProcessStopNotification, 100),
 		},
 	}
 
