@@ -11,12 +11,13 @@
 package probe
 
 import (
+	json "encoding/json"
+
 	"github.com/DataDog/datadog-agent/pkg/security/events"
 	"github.com/DataDog/datadog-agent/pkg/security/resolvers/dentry"
 	"github.com/DataDog/datadog-agent/pkg/security/secl/model"
 	"github.com/DataDog/datadog-agent/pkg/security/secl/rules"
 	"github.com/DataDog/datadog-agent/pkg/security/serializers"
-	easyjson "github.com/mailru/easyjson"
 )
 
 // EventLostRead is the event used to report lost events detected from user space
@@ -25,6 +26,11 @@ type EventLostRead struct {
 	events.CustomEventCommonFields
 	Name string  `json:"map"`
 	Lost float64 `json:"lost"`
+}
+
+// ToJSON marshal using json format
+func (e EventLostRead) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
 }
 
 // NewEventLostReadEvent returns the rule and a populated custom event for a lost_events_read event
@@ -44,6 +50,11 @@ type EventLostWrite struct {
 	events.CustomEventCommonFields
 	Name string            `json:"map"`
 	Lost map[string]uint64 `json:"per_event"`
+}
+
+// ToJSON marshal using json format
+func (e EventLostWrite) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
 }
 
 // NewEventLostWriteEvent returns the rule and a populated custom event for a lost_events_write event
@@ -74,9 +85,14 @@ type AbnormalEvent struct {
 	Error string                       `json:"error"`
 }
 
+// ToJSON marshal using json format
+func (a AbnormalEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(a)
+}
+
 // NewAbnormalEvent returns the rule and a populated custom event for a abnormal event
 func NewAbnormalEvent(id string, description string, event *model.Event, probe *Probe, err error) (*rules.Rule, *events.CustomEvent) {
-	marshalerCtor := func() easyjson.Marshaler {
+	marshalerCtor := func() events.EventMarshaler {
 		evt := AbnormalEvent{
 			Event: serializers.NewEventSerializer(event, probe.resolvers),
 			Error: err.Error(),

@@ -9,6 +9,7 @@
 package serializers
 
 import (
+	"github.com/DataDog/datadog-agent/pkg/security/events"
 	"github.com/DataDog/datadog-agent/pkg/security/resolvers"
 	"github.com/DataDog/datadog-agent/pkg/security/secl/compiler/eval"
 	"github.com/DataDog/datadog-agent/pkg/security/secl/model"
@@ -124,6 +125,22 @@ func newProcessContextSerializer(pc *model.ProcessContext, e *model.Event, resol
 
 func serializeOutcome(retval int64) string { //nolint:revive // TODO fix revive unused-parameter
 	return "unknown"
+}
+
+// ToJSON returns json
+func (e *EventSerializer) ToJSON() ([]byte, error) {
+	return json.MarshalJSON(e)
+}
+
+// MarshalEvent marshal the event
+func MarshalEvent(event *model.Event, probe *resolvers.Resolvers) ([]byte, error) {
+	s := NewEventSerializer(event, probe)
+	return json.MarshalJSON(s)
+}
+
+// MarshalCustomEvent marshal the custom event
+func MarshalCustomEvent(event *events.CustomEvent) ([]byte, error) {
+	return json.MarshalJSON(event)
 }
 
 // NewEventSerializer creates a new event serializer based on the event type

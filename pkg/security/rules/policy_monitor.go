@@ -1,5 +1,3 @@
-//go:generate go run github.com/mailru/easyjson/easyjson -gen_build_flags=-mod=mod -no_std_marshalers $GOFILE
-
 // Unless explicitly stated otherwise all files in this repository are licensed
 // under the Apache License Version 2.0.
 // This product includes software developed at Datadog (https://www.datadoghq.com/).
@@ -10,6 +8,7 @@ package rules
 
 import (
 	"context"
+	json "encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -147,7 +146,6 @@ func ReportRuleSetLoaded(sender events.EventSender, statsdClient statsd.ClientIn
 }
 
 // RuleState defines a loaded rule
-// easyjson:json
 type RuleState struct {
 	ID         string            `json:"id"`
 	Version    string            `json:"version,omitempty"`
@@ -158,7 +156,6 @@ type RuleState struct {
 }
 
 // PolicyState is used to report policy was loaded
-// easyjson:json
 type PolicyState struct {
 	Name    string       `json:"name"`
 	Version string       `json:"version"`
@@ -167,10 +164,14 @@ type PolicyState struct {
 }
 
 // RulesetLoadedEvent is used to report that a new ruleset was loaded
-// easyjson:json
 type RulesetLoadedEvent struct {
 	events.CustomEventCommonFields
 	Policies []*PolicyState `json:"policies"`
+}
+
+// ToJSON marshal using json format
+func (e RulesetLoadedEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
 }
 
 // PolicyStateFromRuleDefinition returns a policy state based on the rule definition
