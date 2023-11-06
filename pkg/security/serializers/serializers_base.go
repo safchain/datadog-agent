@@ -9,7 +9,6 @@ package serializers
 
 import (
 	"github.com/DataDog/datadog-agent/pkg/security/resolvers"
-	"github.com/DataDog/datadog-agent/pkg/security/secl/compiler/eval"
 	"github.com/DataDog/datadog-agent/pkg/security/secl/model"
 	"github.com/DataDog/datadog-agent/pkg/security/utils"
 )
@@ -197,34 +196,6 @@ func newMatchedRulesSerializer(r *model.MatchedRule) MatchedRuleSerializer {
 	return mrs
 }
 
-func newDDContextSerializer(e *model.Event) *DDContextSerializer {
-	s := &DDContextSerializer{
-		SpanID:  e.SpanContext.SpanID,
-		TraceID: e.SpanContext.TraceID,
-	}
-	if s.SpanID != 0 || s.TraceID != 0 {
-		return s
-	}
-
-	ctx := eval.NewContext(e)
-	it := &model.ProcessAncestorsIterator{}
-	ptr := it.Front(ctx)
-
-	for ptr != nil {
-		pce := (*model.ProcessCacheEntry)(ptr)
-
-		if pce.SpanID != 0 || pce.TraceID != 0 {
-			s.SpanID = pce.SpanID
-			s.TraceID = pce.TraceID
-			break
-		}
-
-		ptr = it.Next()
-	}
-
-	return s
-}
-
 // nolint: deadcode, unused
 func newDNSEventSerializer(d *model.DNSEvent) *DNSEventSerializer {
 	return &DNSEventSerializer{
@@ -256,18 +227,6 @@ func newIPPortFamilySerializer(c *model.IPPortContext, family string) IPPortFami
 	}
 }
 
-// nolint: deadcode, unused
-func newNetworkContextSerializer(e *model.Event) *NetworkContextSerializer {
-	return &NetworkContextSerializer{
-		Device:      newNetworkDeviceSerializer(e),
-		L3Protocol:  model.L3Protocol(e.NetworkContext.L3Protocol).String(),
-		L4Protocol:  model.L4Protocol(e.NetworkContext.L4Protocol).String(),
-		Source:      newIPPortSerializer(&e.NetworkContext.Source),
-		Destination: newIPPortSerializer(&e.NetworkContext.Destination),
-		Size:        e.NetworkContext.Size,
-	}
-}
-
 func newExitEventSerializer(e *model.Event) *ExitEventSerializer {
 	return &ExitEventSerializer{
 		Cause: model.ExitCause(e.Exit.Cause).String(),
@@ -286,7 +245,6 @@ func NewBaseEventSerializer(event *model.Event, resolvers *resolvers.Resolvers) 
 			Name: eventType.String(),
 		},
 		ProcessContextSerializer: newProcessContextSerializer(pc, event, resolvers),
-		DDContextSerializer:      newDDContextSerializer(event),
 		Date:                     utils.NewEasyjsonTime(event.FieldHandlers.ResolveEventTime(event)),
 	}
 
@@ -298,13 +256,6 @@ func NewBaseEventSerializer(event *model.Event, resolvers *resolvers.Resolvers) 
 	}
 
 	s.Category = model.GetEventTypeCategory(eventType.String())
-	if s.Category == model.NetworkCategory {
-		s.NetworkContextSerializer = newNetworkContextSerializer(event)
-	}
-
-	if event.SecurityProfileContext.Name != "" {
-		s.SecurityProfileContextSerializer = newSecurityProfileContextSerializer(&event.SecurityProfileContext)
-	}
 
 	switch eventType {
 	case model.ExitEventType:
