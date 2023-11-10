@@ -111,6 +111,10 @@ func isBasicType(kind string) bool {
 	return false
 }
 
+func isNetType(kind string) bool {
+	return kind == "net.IPNet"
+}
+
 func isBasicTypeForGettersOnly(kind string) bool {
 	switch kind {
 	case "string", "bool", "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "net.IPNet", "time.Time":
@@ -527,6 +531,10 @@ func handleSpecRecursive(module *common.Module, astFiles *AstFiles, spec interfa
 
 				if len(fieldType) == 0 {
 					continue
+				}
+
+				if isNetType((fieldType)) {
+					module.Imports = append(module.Imports, "net")
 				}
 
 				alias := seclField.name
