@@ -25,6 +25,10 @@ import (
 	"github.com/DataDog/datadog-agent/pkg/security/serializers"
 )
 
+const (
+	defaultKillActionFlushDelay = 2 * time.Second
+)
+
 // PlatformProbe defines a platform dependant probe
 type PlatformProbe interface {
 	Setup() error
