@@ -132,8 +132,8 @@ const (
 	// CustomEventType represents a custom event type
 	CustomEventType EventType = iota
 
-	// CreateNewFileEventType event
-	CreateNewFileEventType
+	// CreateFileEventType event
+	CreateFileEventType
 	// DeleteFileEventType event
 	DeleteFileEventType
 	// WriteFileEventType event
@@ -249,7 +249,7 @@ func (t EventType) String() string {
 		return "stat"
 	case CustomEventType:
 		return "custom_event"
-	case CreateNewFileEventType:
+	case CreateFileEventType:
 		return "create"
 	case DeleteFileEventType:
 		return "delete"

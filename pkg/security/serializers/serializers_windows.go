@@ -228,9 +228,9 @@ func NewEventSerializer(event *model.Event, opts *eval.Opts) *EventSerializer {
 	eventType := model.EventType(event.Type)
 
 	switch eventType {
-	case model.CreateNewFileEventType:
+	case model.CreateFileEventType:
 		s.FileEventSerializer = &FileEventSerializer{
-			FileSerializer: *newFimFileSerializer(&event.CreateNewFile.File, event),
+			FileSerializer: *newFimFileSerializer(&event.CreateFile.File, event),
 		}
 	case model.FileRenameEventType:
 		s.FileEventSerializer = &FileEventSerializer{

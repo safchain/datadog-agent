@@ -69,9 +69,9 @@ func (ev *Event) resolveFields(forADs bool) {
 		_ = ev.FieldHandlers.ResolveOldSecurityDescriptor(ev, &ev.ChangePermission)
 		_ = ev.FieldHandlers.ResolveNewSecurityDescriptor(ev, &ev.ChangePermission)
 	case "create":
-		_ = ev.FieldHandlers.ResolveFimFilePath(ev, &ev.CreateNewFile.File)
-		_ = ev.FieldHandlers.ResolveFileUserPath(ev, &ev.CreateNewFile.File)
-		_ = ev.FieldHandlers.ResolveFimFileBasename(ev, &ev.CreateNewFile.File)
+		_ = ev.FieldHandlers.ResolveFimFilePath(ev, &ev.CreateFile.File)
+		_ = ev.FieldHandlers.ResolveFileUserPath(ev, &ev.CreateFile.File)
+		_ = ev.FieldHandlers.ResolveFimFileBasename(ev, &ev.CreateFile.File)
 	case "create_key":
 	case "delete":
 		_ = ev.FieldHandlers.ResolveFimFilePath(ev, &ev.DeleteFile.File)

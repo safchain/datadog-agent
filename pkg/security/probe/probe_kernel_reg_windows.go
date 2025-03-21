@@ -15,14 +15,14 @@ import (
 )
 
 const (
-	idRegCreateKey     = uint16(1)  // CreateKeyArgs
+	idRegCreateKey     = uint16(1)  // regCreateKeyArgs
 	idRegOpenKey       = uint16(2)  // CraeteKeyArgs
-	idRegDeleteKey     = uint16(3)  // DeleteKeyArgs
-	idRegSetValueKey   = uint16(5)  // setValueKeyArgs
-	idRegFlushKey      = uint16(12) // deleteKeyArgs
-	idRegCloseKey      = uint16(13) // deleteKeyArgs
-	idQuerySecurityKey = uint16(14) // deleteKeyArgs
-	idSetSecurityKey   = uint16(15) // deleteKeyArgs
+	idRegDeleteKey     = uint16(3)  // regDeleteKeyArgs
+	idRegSetValueKey   = uint16(5)  // regSetValueKeyArgs
+	idRegFlushKey      = uint16(12) // regDeleteKeyArgs
+	idRegCloseKey      = uint16(13) // regDeleteKeyArgs
+	idQuerySecurityKey = uint16(14) // regDeleteKeyArgs
+	idSetSecurityKey   = uint16(15) // regDeleteKeyArgs
 
 )
 
@@ -43,7 +43,7 @@ var (
      </template>
 */
 
-type createKeyArgs struct {
+type regCreateKeyArgs struct {
 	etw.DDEventHeader
 	baseObject       regObjectPointer // pointer
 	keyObject        regObjectPointer //pointer
@@ -53,7 +53,7 @@ type createKeyArgs struct {
 	relativeName     string
 	computedFullPath string
 }
-type openKeyArgs createKeyArgs
+type regOpenKeyArgs regCreateKeyArgs
 
 /*
 		<template tid="task_0DeleteKeyArgs">
@@ -62,17 +62,17 @@ type openKeyArgs createKeyArgs
 	      <data name="KeyName" inType="win:UnicodeString"/>
 	     </template>
 */
-type deleteKeyArgs struct {
+type regDeleteKeyArgs struct {
 	etw.DDEventHeader
 	keyObject        regObjectPointer
 	status           uint32
 	keyName          string
 	computedFullPath string
 }
-type flushKeyArgs deleteKeyArgs
-type closeKeyArgs deleteKeyArgs
-type querySecurityKeyArgs deleteKeyArgs
-type setSecurityKeyArgs deleteKeyArgs
+type regFlushKeyArgs regDeleteKeyArgs
+type regCloseKeyArgs regDeleteKeyArgs
+type regQuerySecurityKeyArgs regDeleteKeyArgs
+type regSetSecurityKeyArgs regDeleteKeyArgs
 
 /*
 <template tid="task_0SetValueKeyArgs">
@@ -92,7 +92,7 @@ type setSecurityKeyArgs deleteKeyArgs
 
 </template>
 */
-type setValueKeyArgs struct {
+type regSetValueKeyArgs struct {
 	etw.DDEventHeader
 	keyObject                regObjectPointer
 	status                   uint32
@@ -109,9 +109,9 @@ type setValueKeyArgs struct {
 	computedFullPath         string
 }
 
-func (wp *WindowsProbe) parseCreateRegistryKey(e *etw.DDEventRecord) (*createKeyArgs, error) {
+func (wp *WindowsProbe) parseRegCreateRegistryKey(e *etw.DDEventRecord) (*regCreateKeyArgs, error) {
 
-	crc := &createKeyArgs{
+	crc := &regCreateKeyArgs{
 		DDEventHeader: e.EventHeader,
 	}
 	data := etwimpl.GetUserData(e)
@@ -148,20 +148,20 @@ func translateRegistryBasePath(s string) string {
 	}
 	return s
 }
-func (cka *createKeyArgs) translateBasePaths() {
+func (cka *regCreateKeyArgs) translateBasePaths() {
 
 	cka.relativeName = translateRegistryBasePath(cka.relativeName)
 
 }
-func (wp *WindowsProbe) parseOpenRegistryKey(e *etw.DDEventRecord) (*openKeyArgs, error) {
-	cka, err := wp.parseCreateRegistryKey(e)
+func (wp *WindowsProbe) parseRegOpenRegistryKey(e *etw.DDEventRecord) (*regOpenKeyArgs, error) {
+	cka, err := wp.parseRegCreateRegistryKey(e)
 	if err != nil {
 		return nil, err
 	}
-	return (*openKeyArgs)(cka), nil
+	return (*regOpenKeyArgs)(cka), nil
 }
 
-func (wp *WindowsProbe) computeFullPath(cka *createKeyArgs) {
+func (wp *WindowsProbe) computeFullPath(cka *regCreateKeyArgs) {
 	if strings.HasPrefix(cka.relativeName, regprefix) {
 		cka.translateBasePaths()
 		cka.computedFullPath = cka.relativeName
@@ -193,7 +193,7 @@ func (wp *WindowsProbe) computeFullPath(cka *createKeyArgs) {
 	cka.computedFullPath = outstr
 
 }
-func (cka *createKeyArgs) String() string {
+func (cka *regCreateKeyArgs) String() string {
 
 	var output strings.Builder
 
@@ -207,13 +207,13 @@ func (cka *createKeyArgs) String() string {
 	return output.String()
 }
 
-func (cka *openKeyArgs) String() string {
-	return (*createKeyArgs)(cka).String()
+func (cka *regOpenKeyArgs) String() string {
+	return (*regCreateKeyArgs)(cka).String()
 }
 
-func (wp *WindowsProbe) parseDeleteRegistryKey(e *etw.DDEventRecord) (*deleteKeyArgs, error) {
+func (wp *WindowsProbe) parseRegDeleteRegistryKey(e *etw.DDEventRecord) (*regDeleteKeyArgs, error) {
 
-	dka := &deleteKeyArgs{
+	dka := &regDeleteKeyArgs{
 		DDEventHeader: e.EventHeader,
 	}
 
@@ -229,37 +229,37 @@ func (wp *WindowsProbe) parseDeleteRegistryKey(e *etw.DDEventRecord) (*deleteKey
 	return dka, nil
 }
 
-func (wp *WindowsProbe) parseFlushKey(e *etw.DDEventRecord) (*flushKeyArgs, error) {
-	dka, err := wp.parseDeleteRegistryKey(e)
+func (wp *WindowsProbe) parseRegFlushKey(e *etw.DDEventRecord) (*regFlushKeyArgs, error) {
+	dka, err := wp.parseRegDeleteRegistryKey(e)
 	if err != nil {
 		return nil, err
 	}
-	return (*flushKeyArgs)(dka), nil
+	return (*regFlushKeyArgs)(dka), nil
 }
 
-func (wp *WindowsProbe) parseCloseKeyArgs(e *etw.DDEventRecord) (*closeKeyArgs, error) {
-	dka, err := wp.parseDeleteRegistryKey(e)
+func (wp *WindowsProbe) parseRegCloseKeyArgs(e *etw.DDEventRecord) (*regCloseKeyArgs, error) {
+	dka, err := wp.parseRegDeleteRegistryKey(e)
 	if err != nil {
 		return nil, err
 	}
-	return (*closeKeyArgs)(dka), nil
+	return (*regCloseKeyArgs)(dka), nil
 }
-func (wp *WindowsProbe) parseQuerySecurityKeyArgs(e *etw.DDEventRecord) (*querySecurityKeyArgs, error) {
-	dka, err := wp.parseDeleteRegistryKey(e)
+func (wp *WindowsProbe) parseRegQuerySecurityKeyArgs(e *etw.DDEventRecord) (*regQuerySecurityKeyArgs, error) {
+	dka, err := wp.parseRegDeleteRegistryKey(e)
 	if err != nil {
 		return nil, err
 	}
-	return (*querySecurityKeyArgs)(dka), nil
+	return (*regQuerySecurityKeyArgs)(dka), nil
 }
-func (wp *WindowsProbe) parseSetSecurityKeyArgs(e *etw.DDEventRecord) (*setSecurityKeyArgs, error) {
-	dka, err := wp.parseDeleteRegistryKey(e)
+func (wp *WindowsProbe) parseRegSetSecurityKeyArgs(e *etw.DDEventRecord) (*regSetSecurityKeyArgs, error) {
+	dka, err := wp.parseRegDeleteRegistryKey(e)
 	if err != nil {
 		return nil, err
 	}
-	return (*setSecurityKeyArgs)(dka), nil
+	return (*regSetSecurityKeyArgs)(dka), nil
 }
 
-func (dka *deleteKeyArgs) String() string {
+func (dka *regDeleteKeyArgs) String() string {
 	var output strings.Builder
 
 	output.WriteString("PID: " + strconv.Itoa(int(dka.ProcessID)) + ", ")
@@ -272,26 +272,26 @@ func (dka *deleteKeyArgs) String() string {
 
 }
 
-func (fka *flushKeyArgs) String() string {
-	return (*deleteKeyArgs)(fka).String()
+func (fka *regFlushKeyArgs) String() string {
+	return (*regDeleteKeyArgs)(fka).String()
 }
-func (cka *closeKeyArgs) String() string {
-	return (*deleteKeyArgs)(cka).String()
-}
-
-//nolint:unused
-func (qka *querySecurityKeyArgs) String() string {
-	return (*deleteKeyArgs)(qka).String()
+func (cka *regCloseKeyArgs) String() string {
+	return (*regDeleteKeyArgs)(cka).String()
 }
 
 //nolint:unused
-func (ska *setSecurityKeyArgs) String() string {
-	return (*deleteKeyArgs)(ska).String()
+func (qka *regQuerySecurityKeyArgs) String() string {
+	return (*regDeleteKeyArgs)(qka).String()
 }
 
-func (wp *WindowsProbe) parseSetValueKey(e *etw.DDEventRecord) (*setValueKeyArgs, error) {
+//nolint:unused
+func (ska *regSetSecurityKeyArgs) String() string {
+	return (*regDeleteKeyArgs)(ska).String()
+}
 
-	sv := &setValueKeyArgs{
+func (wp *WindowsProbe) parseRegSetValueKey(e *etw.DDEventRecord) (*regSetValueKeyArgs, error) {
+
+	sv := &regSetValueKeyArgs{
 		DDEventHeader: e.EventHeader,
 	}
 
@@ -348,7 +348,7 @@ func (wp *WindowsProbe) parseSetValueKey(e *etw.DDEventRecord) (*setValueKeyArgs
 	return sv, nil
 }
 
-func (sv *setValueKeyArgs) String() string {
+func (sv *regSetValueKeyArgs) String() string {
 	var output strings.Builder
 
 	output.WriteString("PID: " + strconv.Itoa(int(sv.ProcessID)) + ", ")

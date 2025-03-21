@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,17 +67,20 @@ type WindowsProbe struct {
 	onETWNotification chan etwNotification
 
 	// ETW component for FIM
-	fileguid  windows.GUID
-	regguid   windows.GUID
-	auditguid windows.GUID
+	fileguid   windows.GUID
+	fileioguid windows.GUID
+	regguid    windows.GUID
+	auditguid  windows.GUID
 
 	//etwcomp    etw.Component
-	fimSession etw.Session
-	fimwg      sync.WaitGroup
+	frimSession etw.Session
+	tracingWg   sync.WaitGroup
 
 	// the audit session needs a separate ETW session because it's using
 	// a well-known provider
 	auditSession etw.Session
+
+	ntLoggerSession etw.Session
 
 	// rate limiters
 	writeKey         writeRateLimiterKey // use a single key for all write events to avoid memory allocations
@@ -155,6 +159,7 @@ type fileCache struct {
 type etwNotification struct {
 	arg any
 	pid uint32
+	id  uint16
 }
 
 type stats struct {
@@ -196,11 +201,10 @@ type stats struct {
  * pid is provided for testing purposes, to allow filtering on pid.  it is
  * not expected to be used at runtime
  */
-type etwCallback func(n interface{}, pid uint32)
+type etwCallback func(n interface{}, pid uint32, id uint16)
 
 // Init initializes the probe
 func (p *WindowsProbe) Init() error {
-
 	p.processKiller.Start(p.ctx, &p.wg)
 
 	if !p.opts.disableProcmon {
@@ -221,13 +225,22 @@ func (p *WindowsProbe) initEtwFIM() error {
 	_ = p.initializeVolumeMap()
 	// log at Warning right now because it's not expected to be enabled
 	log.Warnf("Enabling FIM processing")
+
 	etwSessionName := "SystemProbeFIM_ETW"
 	auditSessionName := "EventLog-Security"
+	ntLoggerSessionName := "NT Kernel Logger"
+
 	etwcomp, err := etwimpl.NewEtw()
 	if err != nil {
 		return err
 	}
-	p.fimSession, err = etwcomp.NewSession(etwSessionName, false, nil)
+	p.frimSession, err = etwcomp.NewSession(etwSessionName, false, nil)
+	if err != nil {
+		return err
+	}
+	p.ntLoggerSession, err = etwcomp.NewSession(ntLoggerSessionName, false, func(cfg *etw.SessionConfiguration) {
+		cfg.EnableFlags = etw.EVENT_TRACE_FLAG_DISK_FILE_IO | etw.EVENT_TRACE_FLAG_FILE_IO | etw.EVENT_TRACE_FLAG_FILE_IO_INIT
+	})
 	if err != nil {
 		return err
 	}
@@ -256,13 +269,21 @@ func (p *WindowsProbe) initEtwFIM() error {
 		return err
 	}
 
-	//<provider name="Microsoft-Windows-Kernel-Registry" guid="{70eb4f03-c1de-4f73-a051-33d13d5413bd}"
+	// provider FileIo guid="90cbdc39-4a3e-11d1-84f4-0000f80464e3}"
+	p.fileioguid, err = windows.GUIDFromString("{90cbdc39-4a3e-11d1-84f4-0000f80464e3}")
+	if err != nil {
+		log.Errorf("Error converting guid %v", err)
+		return err
+	}
+
+	// provider name="Microsoft-Windows-Kernel-Registry" guid="{70eb4f03-c1de-4f73-a051-33d13d5413bd}"
 	p.regguid, err = windows.GUIDFromString("{70eb4f03-c1de-4f73-a051-33d13d5413bd}")
 	if err != nil {
 		log.Errorf("Error converting guid %v", err)
 		return err
 	}
-	//  <provider name="Microsoft-Windows-Security-Auditing" guid="{54849625-5478-4994-a5ba-3e3b0328c30d}"
+
+	// provider name="Microsoft-Windows-Security-Auditing" guid="{54849625-5478-4994-a5ba-3e3b0328c30d}"
 	p.auditguid, err = windows.GUIDFromString("{54849625-5478-4994-a5ba-3e3b0328c30d}")
 	if err != nil {
 		log.Errorf("Error converting guid %v", err)
@@ -279,7 +300,7 @@ func (p *WindowsProbe) reconfigureProvider() error {
 
 	pidsList := make([]uint32, 0)
 
-	p.fimSession.ConfigureProvider(p.fileguid, func(cfg *etw.ProviderConfiguration) {
+	p.frimSession.ConfigureProvider(p.fileguid, func(cfg *etw.ProviderConfiguration) {
 		cfg.TraceLevel = etw.TRACE_LEVEL_VERBOSE
 		cfg.PIDs = pidsList
 
@@ -325,7 +346,7 @@ func (p *WindowsProbe) reconfigureProvider() error {
 		cfg.EnabledIDs = fileIDs
 	})
 
-	p.fimSession.ConfigureProvider(p.regguid, func(cfg *etw.ProviderConfiguration) {
+	p.frimSession.ConfigureProvider(p.regguid, func(cfg *etw.ProviderConfiguration) {
 		cfg.TraceLevel = etw.TRACE_LEVEL_VERBOSE
 		cfg.PIDs = pidsList
 
@@ -371,18 +392,12 @@ func (p *WindowsProbe) reconfigureProvider() error {
 		cfg.EnabledIDs = regIDs
 	})
 
-	if p.auditSession != nil {
-		p.auditSession.ConfigureProvider(p.auditguid, func(cfg *etw.ProviderConfiguration) {
-			cfg.TraceLevel = etw.TRACE_LEVEL_VERBOSE
-		})
-	}
-
-	if err := p.fimSession.EnableProvider(p.fileguid); err != nil {
+	if err := p.frimSession.EnableProvider(p.fileguid); err != nil {
 		log.Warnf("Error enabling provider %v", err)
 		return err
 	}
 
-	if err := p.fimSession.EnableProvider(p.regguid); err != nil {
+	if err := p.frimSession.EnableProvider(p.regguid); err != nil {
 		log.Warnf("Error enabling provider %v", err)
 		return err
 	}
@@ -392,20 +407,26 @@ func (p *WindowsProbe) reconfigureProvider() error {
 
 // Stop the probe
 func (p *WindowsProbe) Stop() {
-	if p.fimSession != nil || p.auditSession != nil {
-		if p.fimSession != nil {
-			if err := p.fimSession.StopTracing(); err != nil {
-				log.Errorf("Error stopping tracing %v", err)
-			}
+	if p.frimSession != nil {
+		log.Info("Calling stop tracing on FIM session")
+		if err := p.frimSession.StopTracing(); err != nil {
+			log.Errorf("Error stopping FIM tracing %v", err)
 		}
-		if p.auditSession != nil {
-			log.Info("Calling stoptracing on audit session")
-			if err := p.auditSession.StopTracing(); err != nil {
-				log.Errorf("Error stopping tracing audit %v", err)
-			}
-		}
-		p.fimwg.Wait()
 	}
+	if p.auditSession != nil {
+		log.Info("Calling stop tracing on Audit session")
+		if err := p.auditSession.StopTracing(); err != nil {
+			log.Errorf("Error stopping Audit tracing %v", err)
+		}
+	}
+	if p.ntLoggerSession != nil {
+		log.Info("Calling stop tracing on Nt Logger session")
+		if err := p.ntLoggerSession.StopTracing(); err != nil {
+			log.Errorf("Error stopping NT Logger tracing %v", err)
+		}
+	}
+	p.tracingWg.Wait()
+
 	if p.pm != nil {
 		p.pm.Stop()
 	}
@@ -449,8 +470,8 @@ func (p *WindowsProbe) approve(field eval.Field, eventType string, value string)
 
 	return false
 }
-func (p *WindowsProbe) auditEtw(ecb etwCallback) error {
-	log.Info("Starting tracing...")
+func (p *WindowsProbe) startTracingAudit(ecb etwCallback) error {
+	log.Info("Starting Audit tracing...")
 	err := p.auditSession.StartTracing(func(e *etw.DDEventRecord) {
 
 		switch e.EventHeader.ProviderID {
@@ -460,7 +481,7 @@ func (p *WindowsProbe) auditEtw(ecb etwCallback) error {
 			case idObjectPermsChange:
 				if pc, err := p.parseObjectPermsChange(e); err == nil {
 					log.Tracef("Received objectPermsChange event %d %s", e.EventHeader.EventDescriptor.ID, pc)
-					ecb(pc, e.EventHeader.ProcessID)
+					ecb(pc, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				}
 			}
 		}
@@ -468,10 +489,53 @@ func (p *WindowsProbe) auditEtw(ecb etwCallback) error {
 	return err
 }
 
-func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
+func (p *WindowsProbe) startTracingNTLogger(ecb etwCallback) error {
+	log.Info("Starting NT Logger tracing...")
+	err := p.ntLoggerSession.StartTracing(func(e *etw.DDEventRecord) {
+		switch e.EventHeader.ProviderID {
+		case etw.DDGUID(p.fileioguid):
+			switch e.EventHeader.EventDescriptor.Opcode {
+			case opNameCreate:
+				/*data := etwimpl.GetUserData(e)
 
-	log.Info("Starting tracing...")
-	err := p.fimSession.StartTracing(func(e *etw.DDEventRecord) {
+				str, _, _, _ := data.ParseUnicodeString(24)
+
+				fmt.Printf("Name: %s\n", str)*/
+
+				/*ca.irp = data.GetUint64(0)
+				ca.threadID = data.GetUint64(8)
+				ca.fileObject = fileObjectPointer(data.GetUint64(16))
+				ca.createOptions = data.GetUint32(24)
+				ca.createAttributes = data.GetUint32(28)
+				ca.shareAccess = data.GetUint32(32)*/
+
+			case opCreate:
+				/*if ca, err := p.parseNlCreateArgs(e); err == nil {
+					_ = ca
+					log.Debugf("Received opCreate event %d %s", e.EventHeader.EventDescriptor.ID, ca)
+
+					p.stats.fpnLock.Lock()
+					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
+					p.stats.fpnLock.Unlock()
+
+					fmt.Printf("NAME: :::::: %s\n", ca.fileName)
+
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
+				} else {
+					log.Debugf("Unable to parse opCreate event %d %s", e.EventHeader.EventDescriptor.ID, err)
+				}*/
+			}
+			//fmt.Printf("FFFFFFFFFFFFFFFFFFFFFFFFF: %+v\n", e)
+		}
+	})
+	return err
+}
+
+func (p *WindowsProbe) startTracingFrim(ecb etwCallback) error {
+	log.Info("Starting FRIM tracing...")
+	err := p.frimSession.StartTracing(func(e *etw.DDEventRecord) {
+
+		// TODO atomic
 		p.stats.totalEtwNotifications++
 		switch e.EventHeader.ProviderID {
 		case etw.DDGUID(p.fileguid):
@@ -482,82 +546,90 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 
 			switch e.EventHeader.EventDescriptor.ID {
 			case idNameCreate:
-				if ca, err := p.parseNameCreateArgs(e); err == nil {
+				/*if ca, err := p.parseKfNameCreateArgs(e); err == nil {
 					log.Tracef("Received idNameCreate event %d %s", e.EventHeader.EventDescriptor.ID, ca)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(ca, e.EventHeader.ProcessID)
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idNameCreate event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
+				}*/
 			case idNameDelete:
-				if ca, err := p.parseNameDeleteArgs(e); err == nil {
+				/*if ca, err := p.parseKfNameDeleteArgs(e); err == nil {
 					log.Tracef("Received idNameDelete event %d %s", e.EventHeader.EventDescriptor.ID, ca)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(ca, e.EventHeader.ProcessID)
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idNameDelete event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
+				}*/
 			case idCreate:
-				if ca, err := p.parseCreateHandleArgs(e); err == nil {
+				if ca, err := p.parsekfCreateArgs(e); err == nil {
 					log.Tracef("Received idCreate event %d %s", e.EventHeader.EventDescriptor.ID, ca)
+
+					if strings.Contains(ca.fileName, "toto") {
+						fmt.Printf("FILE STD: %s\n", ca.fileName)
+					}
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(ca, e.EventHeader.ProcessID)
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idCreate event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idCreateNewFile:
-				if ca, err := p.parseCreateNewFileArgs(e); err == nil {
+				if ca, err := p.parseKfCreateNewFileArgs(e); err == nil {
 					log.Tracef("Received idCreateNewFile event %d %s", e.EventHeader.EventDescriptor.ID, ca)
+
+					if strings.Contains(ca.fileName, "toto") {
+						fmt.Printf("FILE NEW: %s\n", ca.fileName)
+					}
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(ca, e.EventHeader.ProcessID)
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idCreateNewFile event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idCleanup:
-				if ca, err := p.parseCleanupArgs(e); err == nil {
+				/*if ca, err := p.parseKfCleanupArgs(e); err == nil {
 					log.Tracef("Received idCleanup event %d %s", e.EventHeader.EventDescriptor.ID, ca)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(ca, e.EventHeader.ProcessID)
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idCleanup event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
+				}*/
 			case idClose:
-				if ca, err := p.parseCloseArgs(e); err == nil {
+				/*if ca, err := p.parseKfCloseArgs(e); err == nil {
 					log.Tracef("Received idClose event %d %s", e.EventHeader.EventDescriptor.ID, ca)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(ca, e.EventHeader.ProcessID)
+					ecb(ca, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 					// lru is thread safe, has its own locking
 					p.discardedFileHandles.Remove(ca.fileObject)
 					p.filePathResolver.Remove(ca.fileObject)
 				} else {
 					log.Tracef("Unable to parse idCleanup event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
+				}*/
 			case idFlush:
-				if fa, err := p.parseFlushArgs(e); err == nil {
+				/*if fa, err := p.parseKfFlushArgs(e); err == nil {
 					log.Tracef("Received idFlush event %d %s", e.EventHeader.EventDescriptor.ID, fa)
 
 					p.stats.fpnLock.Lock()
@@ -567,103 +639,101 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 					ecb(fa, e.EventHeader.ProcessID)
 				} else {
 					log.Tracef("Unable to parse idFlush event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
+				}*/
 			case idWrite:
-				if wa, err := p.parseWriteArgs(e); err == nil {
+				if wa, err := p.parseKfWriteArgs(e); err == nil {
 					log.Tracef("Received idWrite event %d %s", e.EventHeader.EventDescriptor.ID, wa)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(wa, e.EventHeader.ProcessID)
+					p.writeKey.fileObject = wa.fileObject
+					p.writeKey.processID = wa.DDEventHeader.ProcessID
+					if !p.writeRateLimiter.Allow(p.writeKey) {
+						return
+					}
+
+					ecb(wa, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else if err != errReadNoPath && err != errDiscardedPath {
 					log.Tracef("Unable to parse idWrite event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idSetInformation:
-				if si, err := p.parseInformationArgs(e); err == nil {
+				if si, err := p.parseKfSetInformationArgs(e); err == nil {
 					log.Tracef("Received idSetInformation event %d %s", e.EventHeader.EventDescriptor.ID, si)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(si, e.EventHeader.ProcessID)
+					ecb(si, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idSetInformation event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idSetDelete:
-				if sd, err := p.parseSetDeleteArgs(e); err == nil {
+				if sd, err := p.parseKfSetDeleteArgs(e); err == nil {
 					log.Tracef("Received idSetDelete event %d %s", e.EventHeader.EventDescriptor.ID, sd)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(sd, e.EventHeader.ProcessID)
+					ecb(sd, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idSetDelete event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idDeletePath:
-				if dp, err := p.parseDeletePathArgs(e); err == nil {
+				if dp, err := p.parseKfDeletePathArgs(e); err == nil {
 					log.Tracef("Received idDeletePath event %d %s", e.EventHeader.EventDescriptor.ID, dp)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(dp, e.EventHeader.ProcessID)
+					ecb(dp, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idDeletePath event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
-			case idRename:
-				if rn, err := p.parseRenameArgs(e); err == nil {
+			case idRename, idRename29:
+				if rn, err := p.parseKfRenameArgs(e); err == nil {
 					log.Tracef("Received idRename event %d %s", e.EventHeader.EventDescriptor.ID, rn)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(rn, e.EventHeader.ProcessID)
+					fc := fileCache{
+						fileName:     rn.fileName,
+						userFileName: rn.userFileName,
+					}
+					p.renamePreArgs.Add(uint64(rn.fileObject), fc)
 				} else {
 					log.Tracef("Unable to parse idRename event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idRenamePath:
-				if rn, err := p.parseRenamePathArgs(e); err == nil {
+				if rn, err := p.parseKfRenamePathArgs(e); err == nil {
 					log.Tracef("Received idRenamePath event %d %s", e.EventHeader.EventDescriptor.ID, rn)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(rn, e.EventHeader.ProcessID)
+					ecb(rn, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idRenamePath event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idFSCTL:
-				if fs, err := p.parseFsctlArgs(e); err == nil {
+				/*if fs, err := p.parseKfFsctlArgs(e); err == nil {
 					log.Tracef("Received idFSCTL event %d %s", e.EventHeader.EventDescriptor.ID, fs)
 
 					p.stats.fpnLock.Lock()
 					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.fpnLock.Unlock()
 
-					ecb(fs, e.EventHeader.ProcessID)
+					ecb(fs, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idFSCTL event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
-			case idRename29:
-				if rn, err := p.parseRename29Args(e); err == nil {
-					log.Tracef("Received idRename29 event %d %s", e.EventHeader.EventDescriptor.ID, rn)
-
-					p.stats.fpnLock.Lock()
-					p.stats.fileProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
-					p.stats.fpnLock.Unlock()
-
-					ecb(rn, e.EventHeader.ProcessID)
-				} else {
-					log.Tracef("Unable to parse idRename29 event %d %s", e.EventHeader.EventDescriptor.ID, err)
-				}
+				}*/
 			}
 		case etw.DDGUID(p.regguid):
 			p.stats.rnLock.Lock()
@@ -671,43 +741,43 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 			p.stats.rnLock.Unlock()
 			switch e.EventHeader.EventDescriptor.ID {
 			case idRegCreateKey:
-				if cka, err := p.parseCreateRegistryKey(e); err == nil {
+				if cka, err := p.parseRegCreateRegistryKey(e); err == nil {
 					log.Tracef("Got idRegCreateKey %s", cka)
 
 					p.stats.rpnLock.Lock()
 					p.stats.regProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.rpnLock.Unlock()
 
-					ecb(cka, e.EventHeader.ProcessID)
+					ecb(cka, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idRegCreateKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idRegOpenKey:
-				if cka, err := p.parseOpenRegistryKey(e); err == nil {
+				if cka, err := p.parseRegOpenRegistryKey(e); err == nil {
 					log.Tracef("Got idRegOpenKey %s", cka)
 
 					p.stats.rpnLock.Lock()
 					p.stats.regProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.rpnLock.Unlock()
 
-					ecb(cka, e.EventHeader.ProcessID)
+					ecb(cka, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idRegOpenKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idRegDeleteKey:
-				if dka, err := p.parseDeleteRegistryKey(e); err == nil {
+				if dka, err := p.parseRegDeleteRegistryKey(e); err == nil {
 					log.Tracef("Got idRegDeleteKey %v", dka)
 
 					p.stats.rpnLock.Lock()
 					p.stats.regProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.rpnLock.Unlock()
 
-					ecb(dka, e.EventHeader.ProcessID)
+					ecb(dka, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 				} else {
 					log.Tracef("Unable to parse idRegDeleteKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idRegFlushKey:
-				if dka, err := p.parseFlushKey(e); err == nil {
+				if dka, err := p.parseRegFlushKey(e); err == nil {
 					log.Tracef("Got idRegFlushKey %v", dka)
 
 					p.stats.rpnLock.Lock()
@@ -717,7 +787,7 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 					log.Tracef("Unable to parse idRegFlushKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idRegCloseKey:
-				if dka, err := p.parseCloseKeyArgs(e); err == nil {
+				if dka, err := p.parseRegCloseKeyArgs(e); err == nil {
 					log.Tracef("Got idRegCloseKey %s", dka)
 
 					p.regPathResolver.Remove(dka.keyObject)
@@ -728,7 +798,7 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 					log.Tracef("Unable to parse idRegCloseKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idQuerySecurityKey:
-				if dka, err := p.parseQuerySecurityKeyArgs(e); err == nil {
+				if dka, err := p.parseRegQuerySecurityKeyArgs(e); err == nil {
 					log.Tracef("Got idQuerySecurityKey %v", dka.keyName)
 
 					p.stats.rpnLock.Lock()
@@ -738,7 +808,7 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 					log.Tracef("Unable to parse idQuerySecurityKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idSetSecurityKey:
-				if dka, err := p.parseSetSecurityKeyArgs(e); err == nil {
+				if dka, err := p.parseRegSetSecurityKeyArgs(e); err == nil {
 					log.Tracef("Got idSetSecurityKey %v", dka.keyName)
 
 					p.stats.rpnLock.Lock()
@@ -748,10 +818,10 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 					log.Tracef("Unable to parse idSetSecurityKey event %d %s", e.EventHeader.EventDescriptor.ID, err)
 				}
 			case idRegSetValueKey:
-				if svk, err := p.parseSetValueKey(e); err == nil {
+				if svk, err := p.parseRegSetValueKey(e); err == nil {
 					log.Tracef("Got idRegSetValueKey %s", svk)
 
-					ecb(svk, e.EventHeader.ProcessID)
+					ecb(svk, e.EventHeader.ProcessID, e.EventHeader.EventDescriptor.ID)
 					p.stats.rpnLock.Lock()
 					p.stats.regProcessedNotifications[e.EventHeader.EventDescriptor.ID]++
 					p.stats.rpnLock.Unlock()
@@ -765,25 +835,25 @@ func (p *WindowsProbe) setupEtw(ecb etwCallback) error {
 
 }
 
-func (p *WindowsProbe) preChanETWHandle(arg interface{}) bool {
+/*func (p *WindowsProbe) preFrimChanHandle(arg interface{}) bool {
 	switch arg := arg.(type) {
-	case *closeArgs, *cleanupArgs, *createHandleArgs:
+	case *kfCloseArgs, *kfCleanupArgs, *kfCreateArgs:
 		return false
-	case *renameArgs:
+	case *kfRenameArgs:
 		fc := fileCache{
 			fileName:     arg.fileName,
 			userFileName: arg.userFileName,
 		}
 		p.renamePreArgs.Add(uint64(arg.fileObject), fc)
 		return false
-	case *rename29Args:
+	case *kfRename29Args:
 		fc := fileCache{
 			fileName:     arg.fileName,
 			userFileName: arg.userFileName,
 		}
 		p.renamePreArgs.Add(uint64(arg.fileObject), fc)
 		return false
-	case *writeArgs:
+	case *kfWriteArgs:
 		// rate limit bursts of write events
 		p.writeKey.fileObject = arg.fileObject
 		p.writeKey.processID = arg.DDEventHeader.ProcessID
@@ -791,46 +861,60 @@ func (p *WindowsProbe) preChanETWHandle(arg interface{}) bool {
 	default:
 		return true
 	}
-}
+}*/
 
 // Start processing events
 func (p *WindowsProbe) Start() error {
-
 	log.Infof("Windows probe started")
-	if p.fimSession != nil {
+	if p.frimSession != nil {
 		// log at Warning right now because it's not expected to be enabled
-		log.Warnf("Enabling FIM processing")
-		p.fimwg.Add(1)
+		log.Info("Enabling FIM processing")
 
+		p.tracingWg.Add(1)
 		go func() {
-			defer p.fimwg.Done()
-			err := p.setupEtw(func(n interface{}, pid uint32) {
-				if !p.preChanETWHandle(n) {
+			defer p.tracingWg.Done()
+			err := p.startTracingFrim(func(n interface{}, pid uint32, id uint16) {
+				/*if !p.preFrimChanHandle(n) {
 					return
-				}
+				}*/
 
 				if p.blockonchannelsend {
-					p.onETWNotification <- etwNotification{n, pid}
+					p.onETWNotification <- etwNotification{n, pid, id}
 				} else {
 					select {
-					case p.onETWNotification <- etwNotification{n, pid}:
+					case p.onETWNotification <- etwNotification{n, pid, id}:
 					default:
 						p.stats.etwChannelBlocked++
 					}
 				}
 			})
-			log.Infof("Done StartTracing %v, lost events: %d", err, p.stats.etwChannelBlocked)
+			log.Infof("Done FIM processing %v, lost events: %d", err, p.stats.etwChannelBlocked)
 		}()
 	}
-	if p.auditSession != nil {
-		log.Warnf("Enabling Audit processing")
-		p.fimwg.Add(1)
+
+	if p.ntLoggerSession != nil {
+		// log at Warning right now because it's not expected to be enabled
+		log.Info("Enabling NT Logger processing")
+
+		p.tracingWg.Add(1)
 		go func() {
-			defer p.fimwg.Done()
-			err := p.auditEtw(func(n interface{}, pid uint32) {
-				p.onETWNotification <- etwNotification{n, pid}
+			defer p.tracingWg.Done()
+			err := p.startTracingNTLogger(func(n interface{}, pid uint32, id uint16) {
 			})
-			log.Infof("Done AuditTracing %v", err)
+			log.Infof("Done NT Logger processing %v, lost events: %d", err, p.stats.etwChannelBlocked)
+		}()
+	}
+
+	if p.auditSession != nil {
+		log.Info("Enabling Audit processing")
+
+		p.tracingWg.Add(1)
+		go func() {
+			defer p.tracingWg.Done()
+			err := p.startTracingAudit(func(n interface{}, pid uint32, id uint16) {
+				p.onETWNotification <- etwNotification{n, pid, id}
+			})
+			log.Infof("Done Audit processing %v, lost events: %d", err, p.stats.etwChannelBlocked)
 		}()
 	}
 	if p.pm == nil {
@@ -946,13 +1030,15 @@ func (p *WindowsProbe) handleProcessStop(ev *model.Event, stop *procmon.ProcessS
 }
 
 func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotification) bool {
+	log.Tracef("handle ETW Notification event id : %d", notif.id)
+
 	// handle incoming events here
 	// each event will come in as a different type
 	// parse it with
 	switch arg := notif.arg.(type) {
-	case *createNewFileArgs:
-		ev.Type = uint32(model.CreateNewFileEventType)
-		ev.CreateNewFile = model.CreateNewFileEvent{
+	case *kfCreateArgs:
+		ev.Type = uint32(model.CreateFileEventType)
+		ev.CreateFile = model.CreateFileEvent{
 			File: model.FimFileEvent{
 				FileObject:      uint64(arg.fileObject),
 				PathnameStr:     arg.fileName,
@@ -960,7 +1046,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 				BasenameStr:     filepath.Base(arg.fileName),
 			},
 		}
-	case *renamePath:
+	case *kfRenamePath:
 		fileCache, found := p.renamePreArgs.Get(uint64(arg.fileObject))
 		if !found {
 			log.Debugf("unable to find renamePreArgs for %d", uint64(arg.fileObject))
@@ -982,7 +1068,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 			},
 		}
 		p.renamePreArgs.Remove(uint64(arg.fileObject))
-	case *setDeleteArgs:
+	case *kfSetDeleteArgs:
 		ev.Type = uint32(model.DeleteFileEventType)
 		ev.DeleteFile = model.DeleteFileEvent{
 			File: model.FimFileEvent{
@@ -992,7 +1078,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 				BasenameStr:     filepath.Base(arg.fileName),
 			},
 		}
-	case *writeArgs:
+	case *kfWriteArgs:
 		ev.Type = uint32(model.WriteFileEventType)
 		ev.WriteFile = model.WriteFileEvent{
 			File: model.FimFileEvent{
@@ -1002,8 +1088,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 				BasenameStr:     filepath.Base(arg.fileName),
 			},
 		}
-
-	case *createKeyArgs:
+	case *regCreateKeyArgs:
 		ev.Type = uint32(model.CreateRegistryKeyEventType)
 		ev.CreateRegistryKey = model.CreateRegistryKeyEvent{
 			Registry: model.RegistryEvent{
@@ -1011,7 +1096,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 				KeyName: filepath.Base(arg.computedFullPath),
 			},
 		}
-	case *openKeyArgs:
+	case *regOpenKeyArgs:
 		ev.Type = uint32(model.OpenRegistryKeyEventType)
 		ev.OpenRegistryKey = model.OpenRegistryKeyEvent{
 			Registry: model.RegistryEvent{
@@ -1019,7 +1104,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 				KeyName: filepath.Base(arg.computedFullPath),
 			},
 		}
-	case *deleteKeyArgs:
+	case *regDeleteKeyArgs:
 		ev.Type = uint32(model.DeleteRegistryKeyEventType)
 		ev.DeleteRegistryKey = model.DeleteRegistryKeyEvent{
 			Registry: model.RegistryEvent{
@@ -1027,7 +1112,7 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 				KeyPath: arg.computedFullPath,
 			},
 		}
-	case *setValueKeyArgs:
+	case *regSetValueKeyArgs:
 		ev.Type = uint32(model.SetRegistryKeyValueEventType)
 		ev.SetRegistryKeyValue = model.SetRegistryKeyValueEvent{
 			Registry: model.RegistryEvent{
@@ -1046,6 +1131,8 @@ func (p *WindowsProbe) handleETWNotification(ev *model.Event, notif etwNotificat
 			OldSd:      arg.oldSd,
 			NewSd:      arg.newSd,
 		}
+	default:
+		log.Debugf("not supported event type: %T", notif.arg)
 	}
 
 	if ev.Type == uint32(model.UnknownEventType) {
@@ -1156,13 +1243,13 @@ func (p *WindowsProbe) SendStats() error {
 	if err := p.statsdClient.Gauge(metrics.MetricWindowsApproverRejects, float64(p.stats.createFileApproverRejects), nil, 1); err != nil {
 		return err
 	}
-	if p.fimSession == nil {
+	if p.frimSession == nil {
 		return nil
 	}
 
 	// all stats below this line only valid if the full ETW session is enabled
 
-	if etwstats, err := p.fimSession.GetSessionStatistics(); err == nil {
+	if etwstats, err := p.frimSession.GetSessionStatistics(); err == nil {
 		if err := p.statsdClient.Gauge(metrics.MetricWindowsETWNumberOfBuffers, float64(etwstats.NumberOfBuffers), nil, 1); err != nil {
 			return err
 		}
@@ -1410,23 +1497,23 @@ func (p *WindowsProbe) OnNewDiscarder(_ *rules.RuleSet, ev *model.Event, field e
 	}
 
 	if field == "create.file.device_path" {
-		path := ev.CreateNewFile.File.PathnameStr
+		path := ev.CreateFile.File.PathnameStr
 		seclog.Debugf("new discarder for `%s` -> `%v`", field, path)
 		p.discardedPaths.Add(path, struct{}{})
 	} else if field == "create.file.path" {
-		path := ev.CreateNewFile.File.UserPathnameStr
+		path := ev.CreateFile.File.UserPathnameStr
 		if path == "" {
 			return
 		}
 		seclog.Debugf("new discarder for `%s` -> `%v`", field, path)
 		p.discardedUserPaths.Add(path, struct{}{})
 	} else if field == "create.file.name" {
-		basename := ev.CreateNewFile.File.BasenameStr
+		basename := ev.CreateFile.File.BasenameStr
 		seclog.Debugf("new discarder for `%s` -> `%v`", field, basename)
 		p.discardedBasenames.Add(basename, struct{}{})
 	}
 
-	fileObject := fileObjectPointer(ev.CreateNewFile.File.FileObject)
+	fileObject := fileObjectPointer(ev.CreateFile.File.FileObject)
 	p.filePathResolver.Remove(fileObject)
 }
 

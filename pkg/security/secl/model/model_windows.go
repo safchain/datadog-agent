@@ -67,10 +67,10 @@ type Event struct {
 	Exit ExitEvent `field:"exit" event:"exit"` // [7.38] [Process] A process was terminated
 
 	// FIM
-	CreateNewFile CreateNewFileEvent `field:"create" event:"create"` // [7.52] [File] A file was created
-	RenameFile    RenameFileEvent    `field:"rename" event:"rename"` // [7.54] [File] A file was renamed
-	DeleteFile    DeleteFileEvent    `field:"delete" event:"delete"` // [7.54] [File] A file was deleted
-	WriteFile     WriteFileEvent     `field:"write" event:"write"`   // [7.54] [File] A file was written
+	CreateFile CreateFileEvent `field:"create" event:"create"` // [7.52] [File] A file was created
+	RenameFile RenameFileEvent `field:"rename" event:"rename"` // [7.54] [File] A file was renamed
+	DeleteFile DeleteFileEvent `field:"delete" event:"delete"` // [7.54] [File] A file was deleted
+	WriteFile  WriteFileEvent  `field:"write" event:"write"`   // [7.54] [File] A file was written
 
 	// Registries
 	CreateRegistryKey   CreateRegistryKeyEvent   `field:"create_key;create" event:"create_key" `   // [7.52] [Registry] A registry key was created
@@ -161,8 +161,8 @@ type ExtraFieldHandlers interface {
 
 // FIM
 
-// CreateNewFileEvent defines file creation
-type CreateNewFileEvent struct {
+// CreateFileEvent defines file creation
+type CreateFileEvent struct {
 	File FimFileEvent `field:"file"` // SECLDoc[file] Definition:`File Event`
 }
 

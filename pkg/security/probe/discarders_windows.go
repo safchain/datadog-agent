@@ -16,7 +16,7 @@ func init() {
 			Entries: []rules.MultiDiscarderEntry{
 				{
 					Field:     "create.file.device_path",
-					EventType: model.CreateNewFileEventType,
+					EventType: model.CreateFileEventType,
 				},
 				{
 					Field:     "rename.file.device_path",
@@ -32,13 +32,13 @@ func init() {
 				},
 			},
 			FinalField:     "create.file.device_path",
-			FinalEventType: model.CreateNewFileEventType,
+			FinalEventType: model.CreateFileEventType,
 		},
 		{
 			Entries: []rules.MultiDiscarderEntry{
 				{
 					Field:     "create.file.path",
-					EventType: model.CreateNewFileEventType,
+					EventType: model.CreateFileEventType,
 				},
 				{
 					Field:     "rename.file.path",
@@ -54,13 +54,13 @@ func init() {
 				},
 			},
 			FinalField:     "create.file.path",
-			FinalEventType: model.CreateNewFileEventType,
+			FinalEventType: model.CreateFileEventType,
 		},
 		{
 			Entries: []rules.MultiDiscarderEntry{
 				{
 					Field:     "create.file.name",
-					EventType: model.CreateNewFileEventType,
+					EventType: model.CreateFileEventType,
 				},
 				{
 					Field:     "rename.file.name",
@@ -76,7 +76,7 @@ func init() {
 				},
 			},
 			FinalField:     "create.file.name",
-			FinalEventType: model.CreateNewFileEventType,
+			FinalEventType: model.CreateFileEventType,
 		},
 	}
 }
